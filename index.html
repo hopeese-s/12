@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="theme-light">
+<html lang="en" class="theme-dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -728,7 +728,7 @@
         </div>
 
         <button class="theme-toggle-btn" id="theme-btn" onclick="toggleTheme()" aria-label="Toggle Theme">
-          ☀️
+          🌙
         </button>
       </div>
     </header>
@@ -1184,14 +1184,32 @@
       drawWave();
     })();
 
-    // ─── Theme Toggle ───
-    function toggleTheme() {
+    // ─── Theme Toggle (Default: Dark Mode) ───
+    function applyTheme(isDark) {
       const html = document.documentElement;
-      const isDark = html.classList.toggle('theme-dark');
+      if (isDark) {
+        html.classList.add('theme-dark');
+        html.classList.remove('theme-light');
+      } else {
+        html.classList.remove('theme-dark');
+        html.classList.add('theme-light');
+      }
       const btn = document.getElementById('theme-btn');
-      btn.textContent = isDark ? '🌙' : '☀️';
-      showToast(isDark ? 'Obsidian Cyber Theme Active' : 'Silver Glass Theme Active', 'info');
+      if (btn) btn.textContent = isDark ? '🌙' : '☀️';
+      localStorage.setItem('omniload_theme', isDark ? 'dark' : 'light');
     }
+
+    function toggleTheme() {
+      const isCurrentlyDark = document.documentElement.classList.contains('theme-dark');
+      applyTheme(!isCurrentlyDark);
+      showToast(!isCurrentlyDark ? 'Obsidian Cyber Dark Active' : 'Silver Glass Light Active', 'info');
+    }
+
+    // Initial theme load (default: dark)
+    (function initTheme() {
+      const saved = localStorage.getItem('omniload_theme');
+      applyTheme(saved ? saved === 'dark' : true);
+    })();
 
     // ─── OmniLoad Studio Logic ───
     let currentSelectedFile = null;
