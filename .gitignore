@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.class
+.env
+.venv
+env/
+venv/
+downloads/*
+!downloads/.gitkeep
+bin/*.exe
+bin/*.zip
+.DS_Store
+Thumbs.db

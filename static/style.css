@@ -1,0 +1,133 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Kanit:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --bg-main: #060911;
+  --bg-card: rgba(13, 19, 34, 0.85);
+  --bg-input: #0b1120;
+  --border-color: rgba(255, 255, 255, 0.08);
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --primary: #6366f1;
+}
+
+body.theme-amoled {
+  --bg-main: #000000;
+  --bg-card: rgba(10, 10, 12, 0.95);
+  --bg-input: #050508;
+  --border-color: rgba(255, 255, 255, 0.12);
+}
+
+html, body {
+  background-color: var(--bg-main) !important;
+  color: var(--text-primary) !important;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', 'Kanit', sans-serif;
+  box-sizing: border-box;
+}
+
+/* Force dark on all select dropdown options */
+select, option, optgroup {
+  background-color: #0d1322 !important;
+  color: #f8fafc !important;
+}
+
+select:focus, input:focus, textarea:focus {
+  outline: none !important;
+  border-color: #6366f1 !important;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #060911;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+/* Glassmorphism Dark Cards */
+.glass-card {
+  background: var(--bg-card);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-color);
+}
+
+.glass-input {
+  background: var(--bg-input) !important;
+  border: 1px solid var(--border-color) !important;
+  color: #f8fafc !important;
+  transition: all 0.2s ease-in-out;
+}
+.glass-input:focus {
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.25) !important;
+}
+
+/* Progress bar animated stripe */
+.progress-striped {
+  background-image: linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.12) 25%,
+    transparent 25%,
+    transparent 50%,
+    rgba(255, 255, 255, 0.12) 50%,
+    rgba(255, 255, 255, 0.12) 75%,
+    transparent 75%,
+    transparent
+  );
+  background-size: 1rem 1rem;
+  animation: progressStripe 1s linear infinite;
+}
+
+@keyframes progressStripe {
+  0% { background-position: 1rem 0; }
+  100% { background-position: 0 0; }
+}
+
+/* Platform Badges (Soothing Dark Tones) */
+.badge-yt { background: rgba(255, 0, 0, 0.12); color: #f87171; border: 1px solid rgba(255, 0, 0, 0.25); }
+.badge-tw { background: rgba(29, 161, 242, 0.12); color: #38bdf8; border: 1px solid rgba(29, 161, 242, 0.25); }
+.badge-tt { background: rgba(0, 242, 254, 0.12); color: #22d3ee; border: 1px solid rgba(0, 242, 254, 0.25); }
+.badge-ig { background: rgba(225, 48, 108, 0.12); color: #fb7185; border: 1px solid rgba(225, 48, 108, 0.25); }
+.badge-pin { background: rgba(230, 0, 35, 0.12); color: #f43f5e; border: 1px solid rgba(230, 0, 35, 0.25); }
+.badge-fb { background: rgba(24, 119, 242, 0.12); color: #60a5fa; border: 1px solid rgba(24, 119, 242, 0.25); }
+.badge-reddit { background: rgba(255, 69, 0, 0.12); color: #fb923c; border: 1px solid rgba(255, 69, 0, 0.25); }
+.badge-threads { background: rgba(255, 255, 255, 0.1); color: #e2e8f0; border: 1px solid rgba(255, 255, 255, 0.2); }
+.badge-soundcloud { background: rgba(255, 85, 0, 0.12); color: #fdba74; border: 1px solid rgba(255, 85, 0, 0.25); }
+.badge-bilibili { background: rgba(0, 174, 236, 0.12); color: #38bdf8; border: 1px solid rgba(0, 174, 236, 0.25); }
+.badge-twitch { background: rgba(145, 70, 255, 0.12); color: #c084fc; border: 1px solid rgba(145, 70, 255, 0.25); }
+.badge-bsky { background: rgba(18, 133, 254, 0.12); color: #38bdf8; border: 1px solid rgba(18, 133, 254, 0.25); }
+.badge-generic { background: rgba(99, 102, 241, 0.12); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.25); }
+
+/* Glow Effects */
+.glow-primary {
+  box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
+}
+.glow-primary:hover {
+  box-shadow: 0 0 25px rgba(99, 102, 241, 0.45);
+}
+
+/* Standalone Fallback & Utility Rules */
+.hidden {
+  display: none !important;
+}
+
+header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+
+button {
+  cursor: pointer;
+}
