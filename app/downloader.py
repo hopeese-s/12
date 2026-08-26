@@ -226,12 +226,24 @@ def extract_pinterest_fallback(url: str) -> Optional[Dict[str, Any]]:
 # GENERAL VIDEO INFO EXTRACTOR
 # =========================================================================
 
-def extract_video_info(url: str) -> Dict[str, Any]:
-    """Extract metadata with automatic unshortening and fallbacks."""
-    ensure_ffmpeg()
-    
-    url_clean = unshorten_url(url.strip())
+def get_ffmpeg_location() -> Optional[str]:
+    try:
+        ffmpeg_exe = ensure_ffmpeg()
+        if ffmpeg_exe and os.path.exists(ffmpeg_exe):
+            if os.path.isfile(ffmpeg_exe):
+                return os.path.dirname(ffmpeg_exe)
+            return ffmpeg_exe
+    except Exception:
+        pass
+    return None
 
+def extract_video_info(url: str) -> Dict[str, Any]:
+    """
+    Extracts metadata from URL without downloading.
+    Supports YouTube, TikTok, Facebook, Instagram, Twitter/X, SoundCloud, Pinterest, etc.
+    """
+    url_clean = unshorten_url(url.strip())
+    
     # 1. Fast path for Twitter/X
     if "twitter.com" in url_clean.lower() or "x.com" in url_clean.lower():
         fb = extract_twitter_fallback(url_clean)
@@ -251,11 +263,13 @@ def extract_video_info(url: str) -> Dict[str, Any]:
         'no_color': True,
         'extract_flat': False,
         'skip_download': True,
-        'ffmpeg_location': BIN_DIR,
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
         }
     }
+    ff_loc = get_ffmpeg_location()
+    if ff_loc:
+        ydl_opts['ffmpeg_location'] = ff_loc
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
@@ -439,7 +453,6 @@ class DownloadJob:
             'no_color': True,
             'progress_hooks': [self.progress_hook],
             'postprocessor_hooks': [self.postprocessor_hook],
-            'ffmpeg_location': BIN_DIR,
             'windowsfilenames': True,
             'restrictfilenames': False,
             'overwrites': True,
@@ -447,6 +460,10 @@ class DownloadJob:
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
             }
         }
+
+        ff_loc = get_ffmpeg_location()
+        if ff_loc:
+            ydl_opts['ffmpeg_location'] = ff_loc
 
         if self.format_type == 'mp3':
             bitrate = self.quality if self.quality in ['320', '192', '128'] else '320'

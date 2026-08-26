@@ -43,8 +43,9 @@ def pdf_to_images(
     
     page_files = []
     zip_buffer = io.BytesIO() if total_pages > 1 else None
+    zf = zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) if zip_buffer else None
     
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) if zip_buffer else io.BytesIO() as zf:
+    try:
         for page_num in range(total_pages):
             page = doc.load_page(page_num)
             pix = page.get_pixmap(matrix=mat, alpha=False if out_ext == "jpg" else True)
@@ -76,8 +77,11 @@ def pdf_to_images(
                 "height": pix.height
             })
             
-            if total_pages > 1:
+            if zf:
                 zf.writestr(page_fname, img_data)
+    finally:
+        if zf:
+            zf.close()
 
     zip_filename = None
     zip_download_url = None
