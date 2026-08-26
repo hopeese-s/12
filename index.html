@@ -1368,19 +1368,25 @@
         const t = tasks[k];
         const isDone = t.status === 'completed';
         const isErr = t.status === 'error';
+        const pct = t.percent !== undefined ? t.percent : (t.progress !== undefined ? t.progress : (isDone ? 100 : 0));
         return `
           <div class="task-item">
             <div style="display:flex;justify-content:space-between;align-items:center">
-              <div style="font-size:13px;font-weight:600;color:var(--text-main);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70%">${t.title || t.filename || 'Downloading...'}</div>
-              <span style="font-size:11.5px;font-weight:700;color:${isDone ? '#10b981' : isErr ? '#ef4444' : '#2563eb'}">${t.status.toUpperCase()} (${t.progress || 0}%)</span>
+              <div style="font-size:13px;font-weight:600;color:var(--text-main);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70%">${t.title || t.filename || 'Downloading media...'}</div>
+              <span style="font-size:11.5px;font-weight:700;color:${isDone ? '#10b981' : isErr ? '#ef4444' : '#2563eb'}">${t.status.toUpperCase()} (${pct}%)</span>
             </div>
             <div class="progress-bar-bg">
-              <div class="progress-bar-fill" style="width:${t.progress || (isDone ? 100 : 5)}%"></div>
+              <div class="progress-bar-fill" style="width:${pct}%"></div>
             </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--text-muted);margin-top:2px">
+              <span>${t.downloaded_str || '0 B'} / ${t.total_str || '--'}</span>
+              <span>⚡ ${t.speed_str || '--'} &nbsp;•&nbsp; ⏱️ ${t.eta_str || '--'}</span>
+            </div>
+            ${isErr && t.error ? `<div style="font-size:11.5px;color:#ef4444;margin-top:6px;background:rgba(239,68,68,0.1);padding:6px 10px;border-radius:8px">❌ ${t.error}</div>` : ''}
             ${isDone && t.filename ? `
-              <div style="display:flex;justify-content:flex-end">
-                <a href="/downloads/${encodeURIComponent(t.filename)}" target="_blank" class="studio-btn" style="padding:4px 10px;font-size:12px;text-decoration:none">
-                  💾 Download File (${t.filesize_formatted || 'Ready'})
+              <div style="display:flex;justify-content:flex-end;margin-top:8px">
+                <a href="/downloads/${encodeURIComponent(t.filename)}" target="_blank" download class="studio-btn" style="background:#10b981;color:#fff;padding:6px 14px;font-size:12px;text-decoration:none">
+                  💾 Download File (${t.size_str || t.filesize_formatted || 'Saved to Vault'})
                 </a>
               </div>
             ` : ''}
@@ -1389,42 +1395,82 @@
       }).join('');
     }
 
+    let currentSelectedFiles = [];
+
     function setConvMode(mode) {
       currentConvMode = mode;
+      currentSelectedFiles = [];
+      const fileInput = document.getElementById('conv-file-input');
+      if (fileInput) {
+        fileInput.value = '';
+        if (mode === 'pdf2img') {
+          fileInput.accept = '.pdf';
+          fileInput.removeAttribute('multiple');
+        } else if (mode === 'img2pdf') {
+          fileInput.accept = 'image/*,.jpg,.jpeg,.png,.webp,.bmp,.gif';
+          fileInput.setAttribute('multiple', 'multiple');
+        } else if (mode === 'pdfmerge') {
+          fileInput.accept = '.pdf';
+          fileInput.setAttribute('multiple', 'multiple');
+        }
+      }
+
       document.getElementById('conv-btn-pdf2img').classList.toggle('active', mode === 'pdf2img');
       document.getElementById('conv-btn-img2pdf').classList.toggle('active', mode === 'img2pdf');
       document.getElementById('conv-btn-pdfmerge').classList.toggle('active', mode === 'pdfmerge');
       document.getElementById('conv-options-pdf2img').style.display = mode === 'pdf2img' ? 'grid' : 'none';
       
-      const hint = mode === 'pdf2img' ? 'Select a PDF to extract pages as JPG/PNG' : mode === 'img2pdf' ? 'Select images to compile into PDF' : 'Select multiple PDFs to merge';
+      const hint = mode === 'pdf2img' 
+        ? 'Click or Drag a PDF here to extract slide images' 
+        : mode === 'img2pdf' 
+        ? 'Click or Drag multiple images here to compile into PDF' 
+        : 'Click or Drag multiple PDFs here to merge into one';
       document.getElementById('dropzone-text').textContent = hint;
+      document.getElementById('dropzone-sub').textContent = mode === 'pdf2img' 
+        ? 'Supports .pdf documents' 
+        : mode === 'img2pdf' 
+        ? 'Select multiple JPG, PNG, WEBP images (Hold Ctrl/Shift to select multiple)' 
+        : 'Select multiple PDF files (Hold Ctrl/Shift to select multiple)';
+      document.getElementById('start-conv-btn').disabled = true;
+      document.getElementById('conv-result-box').style.display = 'none';
     }
 
     function handleFileSelected(files) {
       if (!files || files.length === 0) return;
-      currentSelectedFile = files[0];
-      document.getElementById('dropzone-text').textContent = `Selected: ${currentSelectedFile.name} (${(currentSelectedFile.size / 1024 / 1024).toFixed(2)} MB)`;
+      currentSelectedFiles = Array.from(files);
+      const count = currentSelectedFiles.length;
+      if (count === 1) {
+        const f = currentSelectedFiles[0];
+        document.getElementById('dropzone-text').textContent = `Selected: ${f.name} (${(f.size / 1024 / 1024).toFixed(2)} MB)`;
+      } else {
+        const totalSize = (currentSelectedFiles.reduce((a, b) => a + b.size, 0) / 1024 / 1024).toFixed(2);
+        document.getElementById('dropzone-text').textContent = `Selected ${count} files (${totalSize} MB total)`;
+      }
       document.getElementById('start-conv-btn').disabled = false;
+      document.getElementById('conv-result-box').style.display = 'none';
     }
 
     async function startConversion() {
-      if (!currentSelectedFile) return;
+      if (!currentSelectedFiles || currentSelectedFiles.length === 0) return;
 
       const btn = document.getElementById('start-conv-btn');
       btn.disabled = true;
       btn.innerHTML = '⏳ Converting Document...';
 
       const formData = new FormData();
-      formData.append('file', currentSelectedFile);
-
       let endpoint = '/api/convert/pdf-to-images';
+
       if (currentConvMode === 'pdf2img') {
         endpoint = '/api/convert/pdf-to-images';
+        formData.append('file', currentSelectedFiles[0]);
         formData.append('output_format', document.getElementById('conv-fmt-select').value);
         formData.append('dpi', document.getElementById('conv-dpi-select').value);
       } else if (currentConvMode === 'img2pdf') {
         endpoint = '/api/convert/images-to-pdf';
-        formData.append('files', currentSelectedFile);
+        currentSelectedFiles.forEach(f => formData.append('files', f));
+      } else if (currentConvMode === 'pdfmerge') {
+        endpoint = '/api/convert/pdf-merge';
+        currentSelectedFiles.forEach(f => formData.append('files', f));
       }
 
       try {
@@ -1433,22 +1479,33 @@
           body: formData
         });
         const data = await res.json();
-        if (data.success) {
+        if (res.ok && (data.success || data.filename || data.download_url)) {
           showToast('Conversion successful!', 'success');
           const box = document.getElementById('conv-result-box');
           const linksBox = document.getElementById('conv-result-links');
           box.style.display = 'block';
 
           let linksHtml = '';
-          if (data.zip_filename) {
-            linksHtml += `<a href="/downloads/${encodeURIComponent(data.zip_filename)}" target="_blank" class="studio-btn">📦 Download All ZIP (${data.total_pages} Pages)</a>`;
+          if (data.zip_download_url || data.zip_filename) {
+            const zipUrl = data.zip_download_url || `/downloads/${encodeURIComponent(data.zip_filename)}`;
+            linksHtml += `<a href="${zipUrl}" target="_blank" download class="studio-btn" style="background:#2563eb;color:#fff;text-decoration:none;padding:10px 16px">📦 Download All ZIP (${data.total_pages || data.pages?.length || ''} Pages)</a>`;
           }
-          if (data.pdf_filename) {
-            linksHtml += `<a href="/downloads/${encodeURIComponent(data.pdf_filename)}" target="_blank" class="studio-btn">📄 Download PDF</a>`;
+          if (data.download_url || data.filename) {
+            const fileUrl = data.download_url || `/downloads/${encodeURIComponent(data.filename)}`;
+            const fileName = data.filename || 'converted_document.pdf';
+            linksHtml += `<a href="${fileUrl}" target="_blank" download class="studio-btn" style="background:#10b981;color:#fff;text-decoration:none;padding:10px 16px">💾 Download ${fileName} (${data.size_bytes ? (data.size_bytes / 1024 / 1024).toFixed(2) + ' MB' : 'Ready'})</a>`;
           }
-          linksBox.innerHTML = linksHtml;
+          if (data.pages && Array.isArray(data.pages) && data.pages.length > 0) {
+            data.pages.slice(0, 10).forEach(p => {
+              linksHtml += `<a href="${p.download_url}" target="_blank" download class="studio-btn studio-btn-secondary" style="padding:6px 12px;font-size:12px;text-decoration:none">Page ${p.page}</a>`;
+            });
+            if (data.pages.length > 10) {
+              linksHtml += `<span style="font-size:11.5px;color:var(--text-muted);align-self:center">+ ${data.pages.length - 10} more in ZIP</span>`;
+            }
+          }
+          linksBox.innerHTML = linksHtml || '<span style="color:#10b981">Conversion complete!</span>';
         } else {
-          showToast(data.detail || 'Conversion failed', 'error');
+          showToast(data.detail || data.error || 'Conversion failed', 'error');
         }
       } catch (err) {
         showToast(err.message, 'error');
