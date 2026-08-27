@@ -670,32 +670,97 @@
       to { opacity: 1; transform: translateY(0); }
     }
 
-    /* ─── Responsive Breakpoints ─── */
+    /* ─── Responsive Breakpoints for Mobile & iPad ─── */
     @media (max-width: 1024px) {
+      .app-viewport {
+        padding: 20px 24px;
+      }
       .main-grid {
         grid-template-columns: 1fr;
         grid-template-rows: auto auto;
-        gap: 30px;
+        gap: 28px;
         align-content: center;
       }
       .findings-card {
         grid-column: 1;
-        max-width: 440px;
+        max-width: 520px;
+        margin: 0 auto;
+        width: 100%;
+      }
+      .studio-modal {
+        max-width: 92%;
+        max-height: 90vh;
       }
       #canvas-container {
         opacity: 0.75;
       }
     }
 
+    @media (max-width: 768px) {
+      .studio-overlay {
+        padding: 12px;
+        align-items: flex-end;
+      }
+      .studio-modal {
+        max-width: 100%;
+        max-height: 92vh;
+        border-radius: 20px 20px 0 0;
+      }
+      .studio-header {
+        padding: 12px 14px;
+      }
+      .studio-tabs {
+        overflow-x: auto;
+        white-space: nowrap;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+        max-width: calc(100% - 44px);
+        padding: 3px;
+      }
+      .studio-tabs::-webkit-scrollbar {
+        display: none;
+      }
+      .studio-tab-btn {
+        padding: 6px 12px;
+        font-size: 12.5px;
+        white-space: nowrap;
+      }
+      .studio-body {
+        padding: 16px 14px;
+        gap: 14px;
+      }
+      .studio-grid-2 {
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }
+    }
+
     @media (max-width: 640px) {
       .app-viewport {
-        padding: 16px 20px;
+        padding: 14px 16px;
       }
       .hero-title {
-        font-size: 34px;
+        font-size: 30px;
+        line-height: 1.15;
+      }
+      .hero-subtitle {
+        font-size: 13.5px;
+      }
+      .tech-cta-btn {
+        width: 100%;
+        justify-content: center;
       }
       .findings-card {
-        padding: 18px;
+        padding: 16px;
+        max-width: 100%;
+      }
+      .studio-input-wrap {
+        flex-direction: column;
+        gap: 6px;
+      }
+      .studio-btn {
+        width: 100%;
+        justify-content: center;
       }
     }
   </style>
@@ -1331,18 +1396,26 @@
 
     function startTaskPolling(taskId) {
       if (pollInterval) clearInterval(pollInterval);
+      loadTasksAndHistory();
       pollInterval = setInterval(async () => {
         try {
-          const res = await fetch(`/api/tasks/${taskId}`);
+          const res = await fetch('/api/tasks');
           if (res.ok) {
-            const task = await res.json();
-            loadTasksAndHistory();
-            if (task.status === 'completed' || task.status === 'error') {
+            const tasks = await res.json();
+            renderTaskList(tasks);
+            const activeList = Array.isArray(tasks) ? tasks : Object.values(tasks);
+            document.getElementById('task-badge').textContent = activeList.length;
+            const targetTask = activeList.find(t => t.task_id === taskId);
+            if (targetTask && (targetTask.status === 'completed' || targetTask.status === 'error')) {
+              if (targetTask.status === 'completed') {
+                showToast(`🎉 ${targetTask.title || 'Download'} completed! Ready to download.`, 'success');
+              }
               clearInterval(pollInterval);
+              pollInterval = null;
             }
           }
         } catch (_) {}
-      }, 1200);
+      }, 700);
     }
 
     async function loadTasksAndHistory() {
@@ -1351,41 +1424,41 @@
         if (res.ok) {
           const tasks = await res.json();
           renderTaskList(tasks);
-          document.getElementById('task-badge').textContent = Object.keys(tasks).length;
+          const activeList = Array.isArray(tasks) ? tasks : Object.values(tasks);
+          document.getElementById('task-badge').textContent = activeList.length;
         }
       } catch (_) {}
     }
 
     function renderTaskList(tasks) {
       const container = document.getElementById('task-list-container');
-      const keys = Object.keys(tasks);
-      if (keys.length === 0) {
+      const taskList = Array.isArray(tasks) ? tasks : Object.values(tasks);
+      if (!taskList || taskList.length === 0) {
         container.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px">No tasks recorded yet.</div>';
         return;
       }
 
-      container.innerHTML = keys.map(k => {
-        const t = tasks[k];
+      container.innerHTML = taskList.map(t => {
         const isDone = t.status === 'completed';
         const isErr = t.status === 'error';
         const pct = t.percent !== undefined ? t.percent : (t.progress !== undefined ? t.progress : (isDone ? 100 : 0));
         return `
-          <div class="task-item">
-            <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="task-item" style="background:rgba(125,125,125,0.06);border:1px solid var(--modal-border);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
               <div style="font-size:13px;font-weight:600;color:var(--text-main);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70%">${t.title || t.filename || 'Downloading media...'}</div>
               <span style="font-size:11.5px;font-weight:700;color:${isDone ? '#10b981' : isErr ? '#ef4444' : '#2563eb'}">${t.status.toUpperCase()} (${pct}%)</span>
             </div>
-            <div class="progress-bar-bg">
-              <div class="progress-bar-fill" style="width:${pct}%"></div>
+            <div class="progress-bar-bg" style="height:6px;background:rgba(125,125,125,0.15);border-radius:3px;overflow:hidden">
+              <div class="progress-bar-fill" style="height:100%;width:${pct}%;background:${isDone ? '#10b981' : isErr ? '#ef4444' : 'var(--accent)'};transition:width 250ms ease;border-radius:3px"></div>
             </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--text-muted);margin-top:2px">
+            <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--text-muted)">
               <span>${t.downloaded_str || '0 B'} / ${t.total_str || '--'}</span>
               <span>⚡ ${t.speed_str || '--'} &nbsp;•&nbsp; ⏱️ ${t.eta_str || '--'}</span>
             </div>
-            ${isErr && t.error ? `<div style="font-size:11.5px;color:#ef4444;margin-top:6px;background:rgba(239,68,68,0.1);padding:6px 10px;border-radius:8px">❌ ${t.error}</div>` : ''}
+            ${isErr && t.error ? `<div style="font-size:11.5px;color:#ef4444;margin-top:4px;background:rgba(239,68,68,0.1);padding:6px 10px;border-radius:8px">❌ ${t.error}</div>` : ''}
             ${isDone && t.filename ? `
-              <div style="display:flex;justify-content:flex-end;margin-top:8px">
-                <a href="/downloads/${encodeURIComponent(t.filename)}" target="_blank" download class="studio-btn" style="background:#10b981;color:#fff;padding:6px 14px;font-size:12px;text-decoration:none">
+              <div style="display:flex;justify-content:flex-end;margin-top:6px">
+                <a href="/downloads/${encodeURIComponent(t.filename)}" target="_blank" download class="studio-btn" style="background:#10b981;color:#fff;padding:7px 16px;font-size:12.5px;font-weight:700;text-decoration:none;border-radius:8px;box-shadow:0 4px 12px rgba(16,185,129,0.3)">
                   💾 Download File (${t.size_str || t.filesize_formatted || 'Saved to Vault'})
                 </a>
               </div>
