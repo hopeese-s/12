@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import shutil
 import asyncio
 import logging
@@ -51,10 +52,28 @@ app.add_middleware(
 )
 
 # Background auto-cleanup worker
+TASK_EXPIRY_SECONDS = 1800  # 30 minutes
+
 async def periodic_cleanup():
     while True:
         try:
-            await asyncio.sleep(3600) # Check every 1 hour
+            await asyncio.sleep(300)  # Check every 5 minutes
+            now = time.time()
+            expired_ids = [
+                tid for tid, t in list(TASKS.items())
+                if now - t.get("created_at", now) > TASK_EXPIRY_SECONDS
+            ]
+            for tid in expired_ids:
+                # Also delete the downloaded file if it exists
+                try:
+                    fpath = TASKS[tid].get("filepath") or ""
+                    if fpath and os.path.exists(fpath):
+                        os.remove(fpath)
+                except Exception:
+                    pass
+                TASKS.pop(tid, None)
+            if expired_ids:
+                logger.info(f"Auto-purged {len(expired_ids)} expired task(s) from memory")
             cleanup_old_downloads()
         except Exception as e:
             logger.error(f"Periodic cleanup error: {e}")
