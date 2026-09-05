@@ -316,7 +316,8 @@ def extract_video_info(url: str) -> Dict[str, Any]:
         'skip_download': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios'],
+                'player_client': ['android'],
+                'player_skip': ['webpage', 'configs'],
             }
         },
         'http_headers': {
@@ -531,7 +532,8 @@ class DownloadJob:
             'overwrites': True,
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['android', 'ios'],
+                    'player_client': ['android'],
+                    'player_skip': ['webpage', 'configs'],
                 }
             },
             'http_headers': {
@@ -547,7 +549,7 @@ class DownloadJob:
         if self.format_type == 'mp3':
             bitrate = self.quality if self.quality in ['320', '192', '128'] else '320'
             ydl_opts.update({
-                'format': 'ba/b[ext=m4a]/140/251/18/best',
+                'format': '18/bestaudio/best',
                 'postprocessors': [
                     {
                         'key': 'FFmpegExtractAudio',
@@ -563,13 +565,13 @@ class DownloadJob:
         else:
             q = self.quality
             if q == '1080':
-                fmt = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best'
+                fmt = 'bestvideo[height<=1080]+bestaudio/18/best'
             elif q == '720':
-                fmt = 'bestvideo[height<=720]+bestaudio/best[height<=720]/best'
+                fmt = '22/18/bestvideo[height<=720]+bestaudio/best'
             elif q == '480':
-                fmt = 'bestvideo[height<=480]+bestaudio/best[height<=480]/best'
+                fmt = '18/bestvideo[height<=480]+bestaudio/best'
             else:
-                fmt = 'bestvideo+bestaudio/best'
+                fmt = '22/18/best'
 
             ydl_opts.update({
                 'format': fmt,
