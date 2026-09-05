@@ -24,7 +24,22 @@ def clean_error_message(err_str: str) -> str:
     cleaned = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', err_str)
     cleaned = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', cleaned)
     cleaned = cleaned.replace("ERROR: ", "").strip()
+
+    lower = cleaned.lower()
+    if "this video is unavailable" in lower or "video unavailable" in lower:
+        return "วิดีโอนี้ไม่สามารถเข้าถึงได้บน YouTube (วิดีโออาจถูกลบ, ถูกตั้งเป็นส่วนตัว, หรือ YouTube ปิดกั้น)"
+    if "private video" in lower:
+        return "วิดีโอนี้ถูกตั้งค่าเป็นส่วนตัว (Private Video) ไม่สามารถดาวน์โหลดได้"
+    if "sign in to confirm" in lower or "bot" in lower:
+        return "YouTube ป้องกันการเข้าถึง (Bot Verification / Throttled) กรุณาลองใหม่อีกครั้งในภายหลัง"
+    if "unsupported url" in lower:
+        return "ไม่รองรับลิงก์นี้ หรือรูปแบบ URL ไม่ถูกต้อง"
+    if "ffprobe and ffmpeg not found" in lower:
+        return "ไม่พบโปรแกรม FFmpeg สำหรับแปลงไฟล์เสียงบนระบบ"
+    if "no video formats found" in lower:
+        return "ไม่พบรูปแบบวิดีโอหรือเสียงที่สามารถดาวน์โหลดได้จากลิงก์นี้"
     return cleaned
+
 
 def unshorten_url(url: str) -> str:
     """Resolves short links like pin.it, youtu.be, t.co, vt.tiktok.com, b23.tv, fb.watch."""
@@ -263,12 +278,6 @@ def extract_video_info(url: str) -> Dict[str, Any]:
         'no_color': True,
         'extract_flat': False,
         'skip_download': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android'],
-                'player_skip': ['webpage', 'configs'],
-            }
-        },
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
@@ -464,12 +473,6 @@ class DownloadJob:
             'windowsfilenames': True,
             'restrictfilenames': False,
             'overwrites': True,
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['android'],
-                    'player_skip': ['webpage', 'configs'],
-                }
-            },
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
                 'Accept-Language': 'en-US,en;q=0.9',
@@ -483,7 +486,7 @@ class DownloadJob:
         if self.format_type == 'mp3':
             bitrate = self.quality if self.quality in ['320', '192', '128'] else '320'
             ydl_opts.update({
-                'format': '18/bestaudio/best',
+                'format': 'bestaudio/best',
                 'postprocessors': [
                     {
                         'key': 'FFmpegExtractAudio',
@@ -499,13 +502,13 @@ class DownloadJob:
         else:
             q = self.quality
             if q == '1080':
-                fmt = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/18/best'
+                fmt = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best'
             elif q == '720':
-                fmt = 'bestvideo[height<=720]+bestaudio/best[height<=720]/18/best'
+                fmt = 'bestvideo[height<=720]+bestaudio/best[height<=720]/best'
             elif q == '480':
-                fmt = 'bestvideo[height<=480]+bestaudio/best[height<=480]/18/best'
+                fmt = 'bestvideo[height<=480]+bestaudio/best[height<=480]/best'
             else:
-                fmt = 'bestvideo+bestaudio/18/best'
+                fmt = 'bestvideo+bestaudio/best'
 
             ydl_opts.update({
                 'format': fmt,

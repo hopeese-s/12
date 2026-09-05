@@ -158,6 +158,13 @@ async def get_tasks():
     sorted_tasks = sorted(TASKS.values(), key=lambda x: x.get("created_at", 0), reverse=True)
     return sorted_tasks
 
+@app.get("/api/tasks/{task_id}")
+async def get_task_by_id(task_id: str):
+    if task_id in TASKS:
+        return TASKS[task_id]
+    raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
+
 @app.get("/api/history")
 async def get_history():
     download_dir = get_download_dir()
