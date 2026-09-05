@@ -316,7 +316,7 @@ def extract_video_info(url: str) -> Dict[str, Any]:
         'skip_download': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android'],
+                'player_client': ['tv_embedded', 'android'],
                 'player_skip': ['webpage', 'configs'],
             }
         },
@@ -532,7 +532,7 @@ class DownloadJob:
             'overwrites': True,
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['android'],
+                    'player_client': ['tv_embedded', 'android'],
                     'player_skip': ['webpage', 'configs'],
                 }
             },
@@ -663,7 +663,7 @@ class DownloadJob:
                         'merge_output_format': 'mp4',
                         'extractor_args': {
                             'youtube': {
-                                'player_client': ['android'],
+                                'player_client': ['tv_embedded', 'android'],
                                 'player_skip': ['webpage', 'configs'],
                             }
                         },
