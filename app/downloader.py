@@ -5,6 +5,8 @@ import uuid
 import asyncio
 import logging
 import urllib.parse
+import urllib.request
+import urllib.error
 from typing import Dict, Any, Optional, List
 import requests
 import yt_dlp
@@ -17,6 +19,30 @@ logger = logging.getLogger("downloader")
 TASKS: Dict[str, Dict[str, Any]] = {}
 SUBSCRIBERS: List[asyncio.Queue] = []
 
+def verify_youtube_url(url: str) -> Optional[str]:
+    """
+    Checks if a YouTube video actually exists using YouTube's official oEmbed API.
+    Returns an error message if the video is not found/private, or None if OK.
+    """
+    clean = unshorten_url(url.strip())
+    if "youtube.com" not in clean.lower() and "youtu.be" not in clean.lower():
+        return None
+    try:
+        encoded = urllib.parse.quote(clean, safe='')
+        oembed_url = f"https://www.youtube.com/oembed?url={encoded}&format=json"
+        req = urllib.request.Request(oembed_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+        res = urllib.request.urlopen(req, timeout=6)
+        if res.getcode() == 200:
+            return None
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return "วิดีโอนี้ไม่มีอยู่จริงใน YouTube หรือถูกลบ/ตั้งเป็นส่วนตัวแล้ว (YouTube: 404 Video Not Found)"
+        elif e.code in (401, 403):
+            return "วิดีโอนี้ถูกจำกัดสิทธิ์ หรือตั้งเป็นส่วนตัว (Private / Restricted Video)"
+    except Exception:
+        pass
+    return None
+
 def clean_error_message(err_str: str) -> str:
     """Strips ANSI escape codes and cleans error messages."""
     if not err_str:
@@ -26,12 +52,12 @@ def clean_error_message(err_str: str) -> str:
     cleaned = cleaned.replace("ERROR: ", "").strip()
 
     lower = cleaned.lower()
-    if "this video is unavailable" in lower or "video unavailable" in lower:
+    if "this video is unavailable" in lower or "video unavailable" in lower or "not found" in lower:
         return "วิดีโอนี้ไม่สามารถเข้าถึงได้บน YouTube (วิดีโออาจถูกลบ, ถูกตั้งเป็นส่วนตัว, หรือ YouTube ปิดกั้น)"
     if "private video" in lower:
         return "วิดีโอนี้ถูกตั้งค่าเป็นส่วนตัว (Private Video) ไม่สามารถดาวน์โหลดได้"
     if "sign in to confirm" in lower or "bot" in lower:
-        return "YouTube ป้องกันการเข้าถึง (Bot Verification / Throttled) กรุณาลองใหม่อีกครั้งในภายหลัง"
+        return "YouTube ป้องกันการเข้าถึงจากเซิร์ฟเวอร์ (Bot Verification / Throttled) หรือวิดีโอนี้ถูกจำกัดสิทธิ์ กรุณาลองใช้คลิปอื่น"
     if "unsupported url" in lower:
         return "ไม่รองรับลิงก์นี้ หรือรูปแบบ URL ไม่ถูกต้อง"
     if "ffprobe and ffmpeg not found" in lower:
@@ -259,6 +285,16 @@ def extract_video_info(url: str) -> Dict[str, Any]:
     """
     url_clean = unshorten_url(url.strip())
     
+    # Check if YouTube video is deleted/private before heavy processing
+    yt_err = verify_youtube_url(url_clean)
+    if yt_err:
+        return {
+            "success": False,
+            "url": url_clean,
+            "platform": "YouTube",
+            "error": yt_err
+        }
+
     # 1. Fast path for Twitter/X
     if "twitter.com" in url_clean.lower() or "x.com" in url_clean.lower():
         fb = extract_twitter_fallback(url_clean)
@@ -278,6 +314,11 @@ def extract_video_info(url: str) -> Dict[str, Any]:
         'no_color': True,
         'extract_flat': False,
         'skip_download': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios'],
+            }
+        },
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
@@ -437,6 +478,21 @@ class DownloadJob:
 
         target_url = self.url
         
+        # Fast YouTube validation: Check if video is deleted/private before invoking yt-dlp
+        yt_err = verify_youtube_url(target_url)
+        if yt_err:
+            logger.warning(f"Download task {self.task_id} aborted: {yt_err}")
+            if task:
+                task.update({
+                    "status": "error",
+                    "error": yt_err,
+                    "percent": 0.0,
+                    "progress": 0.0,
+                    "completed_at": time.time()
+                })
+                broadcast_task_update(self.task_id)
+            return
+
         # Check platform-specific fallbacks
         if ("twitter.com" in self.url.lower() or "x.com" in self.url.lower()) and not self.direct_url:
             fb = extract_twitter_fallback(self.url)
@@ -473,6 +529,11 @@ class DownloadJob:
             'windowsfilenames': True,
             'restrictfilenames': False,
             'overwrites': True,
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'ios'],
+                }
+            },
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
                 'Accept-Language': 'en-US,en;q=0.9',
@@ -486,7 +547,7 @@ class DownloadJob:
         if self.format_type == 'mp3':
             bitrate = self.quality if self.quality in ['320', '192', '128'] else '320'
             ydl_opts.update({
-                'format': 'bestaudio/best',
+                'format': 'ba/b[ext=m4a]/140/251/18/best',
                 'postprocessors': [
                     {
                         'key': 'FFmpegExtractAudio',
