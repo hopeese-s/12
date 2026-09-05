@@ -638,7 +638,107 @@ class DownloadJob:
                     broadcast_task_update(self.task_id)
 
         except Exception as e:
-            # Fallback retry on failure
+            err_str = str(e)
+
+            # ── YouTube fallback retry ──────────────────────────────────
+            # If main format fails for YouTube (any error), retry once with
+            # the most reliable format: 18 (360p MP4 pre-merged, direct HTTP stream).
+            is_youtube = "youtube.com" in self.url.lower() or "youtu.be" in self.url.lower()
+            if is_youtube and not getattr(self, '_yt_fallback_tried', False):
+                self._yt_fallback_tried = True
+                logger.warning(f"YouTube main format failed ({self.task_id}), retrying with format 18/best: {err_str[:120]}")
+                try:
+                    fallback_opts: Dict[str, Any] = {
+                        'outtmpl': outtmpl,
+                        'quiet': True,
+                        'no_warnings': True,
+                        'no_color': True,
+                        'noplaylist': True,
+                        'progress_hooks': [self.progress_hook],
+                        'postprocessor_hooks': [self.postprocessor_hook],
+                        'windowsfilenames': True,
+                        'restrictfilenames': False,
+                        'overwrites': True,
+                        'format': '18/best',
+                        'merge_output_format': 'mp4',
+                        'extractor_args': {
+                            'youtube': {
+                                'player_client': ['android'],
+                                'player_skip': ['webpage', 'configs'],
+                            }
+                        },
+                        'http_headers': {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+                            'Accept-Language': 'en-US,en;q=0.9',
+                        }
+                    }
+                    if self.format_type == 'mp3':
+                        bitrate = self.quality if self.quality in ['320', '192', '128'] else '320'
+                        fallback_opts['format'] = '18/bestaudio/best'
+                        fallback_opts['postprocessors'] = [
+                            {'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': bitrate},
+                            {'key': 'FFmpegMetadata', 'add_metadata': True},
+                        ]
+                    ff_loc2 = get_ffmpeg_location()
+                    if ff_loc2:
+                        fallback_opts['ffmpeg_location'] = ff_loc2
+
+                    with yt_dlp.YoutubeDL(fallback_opts) as ydl2:
+                        info2 = ydl2.extract_info(self.url, download=True)
+
+                        if not self.final_filepath:
+                            if info2:
+                                if 'requested_downloads' in info2 and info2['requested_downloads']:
+                                    self.final_filepath = info2['requested_downloads'][0].get('filepath', '')
+                                if not self.final_filepath:
+                                    self.final_filepath = ydl2.prepare_filename(info2)
+                                if self.format_type == 'mp3':
+                                    base_no_ext = os.path.splitext(self.final_filepath)[0]
+                                    mp3_path = base_no_ext + ".mp3"
+                                    if os.path.exists(mp3_path):
+                                        self.final_filepath = mp3_path
+
+                        if self.final_filepath and os.path.exists(self.final_filepath):
+                            self.filename = os.path.basename(self.final_filepath)
+                            file_size = os.path.getsize(self.final_filepath)
+                        else:
+                            dl_dir = get_download_dir()
+                            files = [os.path.join(dl_dir, f) for f in os.listdir(dl_dir) if os.path.isfile(os.path.join(dl_dir, f))]
+                            if files:
+                                newest = max(files, key=os.path.getctime)
+                                self.final_filepath = newest
+                                self.filename = os.path.basename(newest)
+                                file_size = os.path.getsize(newest)
+                            else:
+                                file_size = 0
+
+                        title2 = self.custom_title or (info2.get('title') if info2 else self.filename)
+                        thumbnail2 = info2.get('thumbnail', '') if info2 else ''
+                        duration2 = info2.get('duration', 0) if info2 else 0
+
+                        if task:
+                            task.update({
+                                "status": "completed",
+                                "percent": 100.0,
+                                "progress": 100.0,
+                                "title": title2,
+                                "thumbnail": thumbnail2,
+                                "duration": duration2,
+                                "duration_str": format_seconds(duration2),
+                                "filename": self.filename,
+                                "filepath": self.final_filepath,
+                                "file_size": file_size,
+                                "file_size_str": format_bytes(file_size),
+                                "size_str": format_bytes(file_size),
+                                "completed_at": time.time()
+                            })
+                            broadcast_task_update(self.task_id)
+                    return  # fallback succeeded
+                except Exception as e2:
+                    logger.error(f"YouTube fallback also failed ({self.task_id}): {e2}")
+                    err_str = str(e2)  # report the fallback error
+
+            # ── Twitter / X fallback ────────────────────────────────────
             if ("twitter.com" in self.url.lower() or "x.com" in self.url.lower()) and not self.direct_url:
                 try:
                     fb = extract_twitter_fallback(self.url)
@@ -650,6 +750,7 @@ class DownloadJob:
                 except Exception:
                     pass
 
+            # ── Pinterest fallback ──────────────────────────────────────
             if ("pinterest.com" in self.url.lower() or "pin.it" in self.url.lower()) and not self.direct_url:
                 try:
                     pin_fb = extract_pinterest_fallback(self.url)
@@ -661,7 +762,7 @@ class DownloadJob:
                 except Exception:
                     pass
 
-            clean_err = clean_error_message(str(e))
+            clean_err = clean_error_message(err_str)
             logger.error(f"Download task {self.task_id} failed: {clean_err}")
             if task:
                 task.update({
