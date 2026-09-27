@@ -942,6 +942,7 @@
             <button class="studio-btn studio-btn-secondary active" id="conv-btn-pdf2img" onclick="setConvMode('pdf2img')">PDF ➔ Images (JPG/PNG)</button>
             <button class="studio-btn studio-btn-secondary" id="conv-btn-img2pdf" onclick="setConvMode('img2pdf')">Images ➔ PDF</button>
             <button class="studio-btn studio-btn-secondary" id="conv-btn-pdfmerge" onclick="setConvMode('pdfmerge')">Merge PDFs</button>
+            <button class="studio-btn studio-btn-secondary" id="conv-btn-pdfcompress" onclick="setConvMode('pdfcompress')">🗜️ Compress PDF</button>
           </div>
 
           <!-- Dropzone -->
@@ -993,6 +994,24 @@
           <div style="display:none;margin-top:14px" id="conv-options-pdfmerge">
             <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Merged PDF Filename</label>
             <input type="text" id="pdfmerge-name" class="studio-select" value="merged_study_notes.pdf" placeholder="e.g. anatomy_all_chapters.pdf" />
+          </div>
+
+          <!-- 4. Compress PDF Options -->
+          <div style="display:none;margin-top:14px" id="conv-options-pdfcompress">
+            <div class="studio-grid-2">
+              <div>
+                <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Compression Level</label>
+                <select id="pdfcompress-level-select" class="studio-select">
+                  <option value="balanced" selected>Balanced (150 DPI, Recommended) — ~50-70% Smaller</option>
+                  <option value="extreme">Maximum Compact (96 DPI) — ~70-85% Smaller</option>
+                  <option value="lossless">Lossless Clean (Structure & Font optimization only)</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Output Filename (Optional)</label>
+                <input type="text" id="pdfcompress-name" class="studio-select" placeholder="Default: [name]_compressed.pdf" />
+              </div>
+            </div>
           </div>
 
           <!-- Action Button -->
@@ -1524,7 +1543,7 @@
       const fileInput = document.getElementById('conv-file-input');
       if (fileInput) {
         fileInput.value = '';
-        if (mode === 'pdf2img') {
+        if (mode === 'pdf2img' || mode === 'pdfcompress') {
           fileInput.accept = '.pdf,application/pdf';
           fileInput.removeAttribute('multiple');
         } else if (mode === 'img2pdf') {
@@ -1539,21 +1558,29 @@
       document.getElementById('conv-btn-pdf2img').classList.toggle('active', mode === 'pdf2img');
       document.getElementById('conv-btn-img2pdf').classList.toggle('active', mode === 'img2pdf');
       document.getElementById('conv-btn-pdfmerge').classList.toggle('active', mode === 'pdfmerge');
+      const compBtn = document.getElementById('conv-btn-pdfcompress');
+      if (compBtn) compBtn.classList.toggle('active', mode === 'pdfcompress');
       
       document.getElementById('conv-options-pdf2img').style.display = mode === 'pdf2img' ? 'grid' : 'none';
       document.getElementById('conv-options-img2pdf').style.display = mode === 'img2pdf' ? 'block' : 'none';
       document.getElementById('conv-options-pdfmerge').style.display = mode === 'pdfmerge' ? 'block' : 'none';
+      const compOpt = document.getElementById('conv-options-pdfcompress');
+      if (compOpt) compOpt.style.display = mode === 'pdfcompress' ? 'block' : 'none';
       
       const hint = mode === 'pdf2img' 
         ? 'Click or Drag a PDF document here' 
         : mode === 'img2pdf' 
         ? 'Click or Drag multiple image files here' 
-        : 'Click or Drag multiple PDF files here to merge';
+        : mode === 'pdfmerge'
+        ? 'Click or Drag multiple PDF files here to merge'
+        : 'Click or Drag a PDF file here to compress';
       const sub = mode === 'pdf2img' 
         ? 'Extracts all pages as high-resolution JPG or PNG images (ZIP included)' 
         : mode === 'img2pdf' 
         ? 'Combines JPG, PNG, WEBP, BMP into a single clean PDF' 
-        : 'Merges 2 or more PDF documents in exact order into a single PDF';
+        : mode === 'pdfmerge'
+        ? 'Merges 2 or more PDF documents in exact order into a single PDF'
+        : 'Reduces PDF file size by 50%–85% while keeping text and diagrams crisp';
       
       document.getElementById('dropzone-text').textContent = hint;
       document.getElementById('dropzone-sub').textContent = sub;
@@ -1566,7 +1593,7 @@
       const fileInput = document.getElementById('conv-file-input');
       if (fileInput) {
         fileInput.value = '';
-        if (currentConvMode === 'pdf2img') {
+        if (currentConvMode === 'pdf2img' || currentConvMode === 'pdfcompress') {
           fileInput.accept = '.pdf,application/pdf';
           fileInput.removeAttribute('multiple');
         } else if (currentConvMode === 'img2pdf') {
@@ -1589,7 +1616,7 @@
     function addFilesToConverter(files) {
       if (!files || files.length === 0) return;
       
-      if (currentConvMode === 'pdf2img') {
+      if (currentConvMode === 'pdf2img' || currentConvMode === 'pdfcompress') {
         const pdfFile = files.find(f => f.name.toLowerCase().endsWith('.pdf')) || files[0];
         if (!pdfFile.name.toLowerCase().endsWith('.pdf')) {
           showToast('Please select a valid .PDF document', 'error');
@@ -1648,8 +1675,10 @@
           btn.innerHTML = '⚡ Extract Slide Images (JPG/PNG)';
         } else if (currentConvMode === 'img2pdf') {
           btn.innerHTML = '📄 Compile Images into PDF';
-        } else {
+        } else if (currentConvMode === 'pdfmerge') {
           btn.innerHTML = '📑 Merge PDFs into One Document';
+        } else if (currentConvMode === 'pdfcompress') {
+          btn.innerHTML = '🗜️ Compress PDF Document';
         }
         return;
       }
@@ -1670,8 +1699,8 @@
               <span style="font-size:11px;color:var(--text-muted);font-family:monospace">(${sizeStr})</span>
             </div>
             <div style="display:flex;align-items:center;gap:4px">
-              ${idx > 0 ? `<button type="button" onclick="moveFile(${idx}, -1)" title="Move Up" class="studio-btn studio-btn-secondary" style="padding:3px 7px;font-size:11px">↑</button>` : ''}
-              ${idx < count - 1 ? `<button type="button" onclick="moveFile(${idx}, 1)" title="Move Down" class="studio-btn studio-btn-secondary" style="padding:3px 7px;font-size:11px">↓</button>` : ''}
+              ${(count > 1 && idx > 0) ? `<button type="button" onclick="moveFile(${idx}, -1)" title="Move Up" class="studio-btn studio-btn-secondary" style="padding:3px 7px;font-size:11px">↑</button>` : ''}
+              ${(count > 1 && idx < count - 1) ? `<button type="button" onclick="moveFile(${idx}, 1)" title="Move Down" class="studio-btn studio-btn-secondary" style="padding:3px 7px;font-size:11px">↓</button>` : ''}
               <button type="button" onclick="removeFileByIndex(${idx})" title="Remove File" class="studio-btn studio-btn-secondary" style="padding:3px 7px;font-size:11px;color:#ef4444">✕</button>
             </div>
           </div>
@@ -1693,6 +1722,9 @@
           btn.disabled = true;
           btn.innerHTML = `⚠️ Select at least 1 more PDF to Merge (${count}/2 selected)`;
         }
+      } else if (currentConvMode === 'pdfcompress') {
+        btn.disabled = false;
+        btn.innerHTML = `🗜️ Compress ${currentSelectedFiles[0].name} (${(currentSelectedFiles[0].size / 1024 / 1024).toFixed(2)} MB)`;
       }
     }
 
@@ -1740,7 +1772,7 @@
 
       const btn = document.getElementById('start-conv-btn');
       btn.disabled = true;
-      btn.innerHTML = '⏳ Converting Document...';
+      btn.innerHTML = currentConvMode === 'pdfcompress' ? '⏳ Compressing Document...' : '⏳ Converting Document...';
 
       const formData = new FormData();
       let endpoint = '/api/convert/pdf-to-images';
@@ -1761,6 +1793,12 @@
         currentSelectedFiles.forEach(f => formData.append('files', f));
         const outName = document.getElementById('pdfmerge-name').value.trim() || 'merged_document.pdf';
         formData.append('output_filename', outName);
+      } else if (currentConvMode === 'pdfcompress') {
+        endpoint = '/api/convert/pdf-compress';
+        formData.append('file', currentSelectedFiles[0]);
+        formData.append('compression_level', document.getElementById('pdfcompress-level-select').value);
+        const outName = document.getElementById('pdfcompress-name').value.trim();
+        if (outName) formData.append('output_filename', outName);
       }
 
       try {
@@ -1770,42 +1808,64 @@
         });
         const data = await res.json();
         if (res.ok && (data.success || data.filename || data.download_url)) {
-          showToast('Conversion successful!', 'success');
+          showToast(currentConvMode === 'pdfcompress' ? 'PDF compressed successfully!' : 'Conversion successful!', 'success');
           const box = document.getElementById('conv-result-box');
           const linksBox = document.getElementById('conv-result-links');
+          const msgBox = document.getElementById('conv-result-msg');
           box.style.display = 'block';
 
           let linksHtml = '';
-          if (data.zip_download_url || data.zip_filename) {
-            const zipUrl = data.zip_download_url || `/downloads/${encodeURIComponent(data.zip_filename)}`;
-            linksHtml += `<a href="${zipUrl}" target="_blank" download class="studio-btn" style="background:#2563eb;color:#fff;text-decoration:none;padding:10px 18px;font-weight:700">📦 Download All ZIP (${data.total_pages || data.pages?.length || ''} Pages)</a>`;
-          }
-          if (data.download_url || data.filename) {
-            const fileUrl = data.download_url || `/downloads/${encodeURIComponent(data.filename)}`;
-            const fileName = data.filename || 'converted_document.pdf';
-            const sizeFormatted = data.size_bytes ? (data.size_bytes / 1024 / 1024).toFixed(2) + ' MB' : 'Ready';
-            linksHtml += `
-              <a href="${fileUrl}" target="_blank" download class="studio-btn" style="background:#10b981;color:#fff;text-decoration:none;padding:10px 18px;font-weight:700">
-                💾 Download ${fileName} (${sizeFormatted})
+          
+          if (currentConvMode === 'pdfcompress' && data.original_size && data.compressed_size) {
+            const origMB = (data.original_size / 1024 / 1024).toFixed(2);
+            const compMB = (data.compressed_size / 1024 / 1024).toFixed(2);
+            const pct = data.saved_percent || 0;
+            
+            msgBox.innerHTML = pct > 0 
+              ? `🎉 Reduced by ${pct}% (${origMB} MB ➔ ${compMB} MB)` 
+              : `✨ Document Optimized (${compMB} MB)`;
+
+            linksHtml = `
+              <a href="${data.download_url}" target="_blank" download class="studio-btn" style="background:#10b981;color:#fff;text-decoration:none;padding:10px 18px;font-weight:700">
+                💾 Download Compressed PDF (${compMB} MB)
               </a>
-              <a href="${fileUrl}" target="_blank" class="studio-btn studio-btn-secondary" style="padding:10px 16px;text-decoration:none">
+              <a href="${data.download_url}" target="_blank" class="studio-btn studio-btn-secondary" style="padding:10px 16px;text-decoration:none">
                 👁️ View PDF
               </a>
             `;
-          }
-          if (data.pages && Array.isArray(data.pages) && data.pages.length > 0) {
-            linksHtml += `<div style="width:100%;margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">`;
-            data.pages.slice(0, 10).forEach(p => {
-              linksHtml += `<a href="${p.download_url}" target="_blank" download class="studio-btn studio-btn-secondary" style="padding:4px 10px;font-size:11.5px;text-decoration:none">Page ${p.page}</a>`;
-            });
-            if (data.pages.length > 10) {
-              linksHtml += `<span style="font-size:11.5px;color:var(--text-muted);align-self:center">+ ${data.pages.length - 10} more in ZIP</span>`;
+          } else {
+            msgBox.innerHTML = '🎉 Conversion Complete!';
+            if (data.zip_download_url || data.zip_filename) {
+              const zipUrl = data.zip_download_url || `/downloads/${encodeURIComponent(data.zip_filename)}`;
+              linksHtml += `<a href="${zipUrl}" target="_blank" download class="studio-btn" style="background:#2563eb;color:#fff;text-decoration:none;padding:10px 18px;font-weight:700">📦 Download All ZIP (${data.total_pages || data.pages?.length || ''} Pages)</a>`;
             }
-            linksHtml += `</div>`;
+            if (data.download_url || data.filename) {
+              const fileUrl = data.download_url || `/downloads/${encodeURIComponent(data.filename)}`;
+              const fileName = data.filename || 'converted_document.pdf';
+              const sizeFormatted = data.size_bytes ? (data.size_bytes / 1024 / 1024).toFixed(2) + ' MB' : 'Ready';
+              linksHtml += `
+                <a href="${fileUrl}" target="_blank" download class="studio-btn" style="background:#10b981;color:#fff;text-decoration:none;padding:10px 18px;font-weight:700">
+                  💾 Download ${fileName} (${sizeFormatted})
+                </a>
+                <a href="${fileUrl}" target="_blank" class="studio-btn studio-btn-secondary" style="padding:10px 16px;text-decoration:none">
+                  👁️ View PDF
+                </a>
+              `;
+            }
+            if (data.pages && Array.isArray(data.pages) && data.pages.length > 0) {
+              linksHtml += `<div style="width:100%;margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">`;
+              data.pages.slice(0, 10).forEach(p => {
+                linksHtml += `<a href="${p.download_url}" target="_blank" download class="studio-btn studio-btn-secondary" style="padding:4px 10px;font-size:11.5px;text-decoration:none">Page ${p.page}</a>`;
+              });
+              if (data.pages.length > 10) {
+                linksHtml += `<span style="font-size:11.5px;color:var(--text-muted);align-self:center">+ ${data.pages.length - 10} more in ZIP</span>`;
+              }
+              linksHtml += `</div>`;
+            }
           }
-          linksBox.innerHTML = linksHtml || '<span style="color:#10b981">Conversion complete!</span>';
+          linksBox.innerHTML = linksHtml || '<span style="color:#10b981">Process complete!</span>';
         } else {
-          showToast(data.detail || data.error || 'Conversion failed', 'error');
+          showToast(data.detail || data.error || 'Operation failed', 'error');
         }
       } catch (err) {
         showToast(err.message, 'error');

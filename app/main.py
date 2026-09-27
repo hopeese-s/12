@@ -35,7 +35,8 @@ from app.converter import (
     pdf_to_images,
     images_to_pdf,
     convert_image,
-    merge_pdfs
+    merge_pdfs,
+    compress_pdf
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -366,6 +367,25 @@ async def api_merge_pdfs(
         return res
     except Exception as e:
         logger.error(f"PDF merge error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/convert/pdf-compress")
+async def api_compress_pdf(
+    file: UploadFile = File(...),
+    compression_level: str = Form("balanced"),
+    output_filename: Optional[str] = Form(None)
+):
+    try:
+        content = await file.read()
+        res = compress_pdf(
+            pdf_bytes=content,
+            original_filename=file.filename or "document.pdf",
+            compression_level=compression_level,
+            output_filename=output_filename
+        )
+        return res
+    except Exception as e:
+        logger.error(f"PDF compress error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 # Serve downloaded files for browser downloading (attachment mode)

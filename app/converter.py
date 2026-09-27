@@ -291,3 +291,92 @@ def merge_pdfs(pdf_items: List[Tuple[str, bytes]], output_filename: str = "merge
         "merged_count": len(merged_files),
         "skipped_errors": errors
     }
+
+def compress_pdf(
+    pdf_bytes: bytes,
+    original_filename: str = "document.pdf",
+    compression_level: str = "balanced",
+    output_filename: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Compresses and optimizes a PDF file using structural de-duplication, stream deflation,
+    and optional image downsampling / re-compression.
+    """
+    if not pdf_bytes or len(pdf_bytes) == 0:
+        raise ValueError("PDF file is empty (0 bytes).")
+
+    original_size = len(pdf_bytes)
+    download_dir = get_download_dir()
+    
+    base_name = os.path.splitext(sanitize_filename(original_filename, "document"))[0]
+    if output_filename and output_filename.strip():
+        clean_name = sanitize_filename(output_filename.strip(), f"{base_name}_compressed.pdf")
+    else:
+        clean_name = f"{base_name}_compressed.pdf"
+        
+    if not clean_name.lower().endswith(".pdf"):
+        clean_name += ".pdf"
+
+    final_filepath = os.path.join(download_dir, clean_name)
+
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    if doc.is_encrypted:
+        doc.close()
+        raise ValueError("This PDF document is password-protected or encrypted. Please remove password first.")
+
+    total_pages = len(doc)
+    if total_pages == 0:
+        doc.close()
+        raise ValueError("PDF document has no pages.")
+
+    level = compression_level.lower().strip()
+
+    # Image re-compression according to preset
+    if level == "extreme":
+        try:
+            doc.rewrite_images(dpi_threshold=100, dpi_target=96, quality=55)
+        except Exception as e:
+            logger.warning(f"Extreme rewrite_images warning: {e}")
+            try:
+                doc.rewrite_images(quality=55)
+            except Exception:
+                pass
+    elif level == "balanced":
+        try:
+            doc.rewrite_images(dpi_threshold=160, dpi_target=150, quality=75)
+        except Exception as e:
+            logger.warning(f"Balanced rewrite_images warning: {e}")
+            try:
+                doc.rewrite_images(quality=75)
+            except Exception:
+                pass
+    # "lossless" leaves images untouched, only optimizing PDF stream structure
+
+    doc.save(
+        final_filepath,
+        garbage=4,
+        clean=True,
+        deflate=True,
+        deflate_images=True,
+        deflate_fonts=True,
+        use_objstms=1
+    )
+    doc.close()
+
+    compressed_size = os.path.getsize(final_filepath)
+    saved_bytes = max(0, original_size - compressed_size)
+    saved_percent = round((saved_bytes / original_size) * 100, 1) if original_size > 0 else 0.0
+
+    return {
+        "success": True,
+        "filename": clean_name,
+        "filepath": final_filepath,
+        "download_url": f"/downloads/{clean_name}",
+        "total_pages": total_pages,
+        "original_size": original_size,
+        "compressed_size": compressed_size,
+        "saved_bytes": saved_bytes,
+        "saved_percent": saved_percent,
+        "level": level
+    }
+
