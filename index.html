@@ -600,16 +600,34 @@
     .dropzone-box {
       border: 2px dashed var(--modal-border);
       border-radius: 14px;
-      padding: 28px 16px;
+      padding: 24px 16px;
       text-align: center;
       background: rgba(125, 125, 125, 0.04);
       cursor: pointer;
-      transition: all 140ms ease;
+      transition: all 180ms ease;
     }
 
-    .dropzone-box:hover {
-      border-color: var(--accent);
+    .dropzone-box:hover, .dropzone-box.dragover {
+      border-color: var(--accent) !important;
+      background: rgba(37, 99, 235, 0.12) !important;
+      transform: scale(1.01);
+    }
+
+    .file-queue-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      border-radius: 10px;
       background: rgba(125, 125, 125, 0.08);
+      border: 1px solid var(--modal-border);
+      font-size: 12.5px;
+      gap: 8px;
+      transition: background 140ms ease;
+    }
+
+    .file-queue-item:hover {
+      background: rgba(125, 125, 125, 0.14);
     }
 
     .task-item {
@@ -920,19 +938,34 @@
 
         <!-- TAB 2: CONVERTER SUITE -->
         <div id="panel-converter" style="display:none">
-          <div style="display:flex;gap:8px;margin-bottom:14px">
+          <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
             <button class="studio-btn studio-btn-secondary active" id="conv-btn-pdf2img" onclick="setConvMode('pdf2img')">PDF ➔ Images (JPG/PNG)</button>
             <button class="studio-btn studio-btn-secondary" id="conv-btn-img2pdf" onclick="setConvMode('img2pdf')">Images ➔ PDF</button>
             <button class="studio-btn studio-btn-secondary" id="conv-btn-pdfmerge" onclick="setConvMode('pdfmerge')">Merge PDFs</button>
           </div>
 
-          <div class="dropzone-box" id="file-dropzone" onclick="document.getElementById('conv-file-input').click()">
-            <input type="file" id="conv-file-input" style="display:none" onchange="handleFileSelected(this.files)" />
-            <div style="font-size:26px;margin-bottom:6px">📁</div>
+          <!-- Dropzone -->
+          <div class="dropzone-box" id="file-dropzone">
+            <input type="file" id="conv-file-input" style="display:none" onchange="handleFileSelectEvent(event)" />
+            <div style="font-size:32px;margin-bottom:6px" id="dropzone-icon">📁</div>
             <div id="dropzone-text" style="font-size:14px;font-weight:600;color:var(--text-main)">Click or Drag files here to convert</div>
             <div id="dropzone-sub" style="font-size:12px;color:var(--text-muted);margin-top:4px">Supports PDF, JPG, PNG, WEBP, BMP</div>
           </div>
 
+          <!-- Selected Files Queue (for Merge PDFs and Images to PDF) -->
+          <div id="selected-files-container" style="display:none;margin-top:14px;background:rgba(125,125,125,0.06);border:1px solid var(--modal-border);border-radius:14px;padding:14px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+              <span style="font-size:13px;font-weight:700;color:var(--text-main)">Selected Files (<span id="selected-files-count">0</span>)</span>
+              <div style="display:flex;gap:8px">
+                <button type="button" class="studio-btn studio-btn-secondary" onclick="triggerFileInput()" style="padding:4px 10px;font-size:11.5px">+ Add More Files</button>
+                <button type="button" class="studio-btn studio-btn-secondary" onclick="clearSelectedFiles()" style="padding:4px 10px;font-size:11.5px;color:#ef4444">Clear All</button>
+              </div>
+            </div>
+            <div id="selected-files-list" style="display:flex;flex-direction:column;gap:6px;max-height:180px;overflow-y:auto"></div>
+          </div>
+
+          <!-- Mode-specific options -->
+          <!-- 1. PDF ➔ Images Options -->
           <div class="studio-grid-2" style="margin-top:14px" id="conv-options-pdf2img">
             <div>
               <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Resolution (DPI)</label>
@@ -950,13 +983,27 @@
             </div>
           </div>
 
-          <button class="studio-btn" id="start-conv-btn" onclick="startConversion()" style="width:100%;margin-top:16px;padding:12px;justify-content:center;font-size:14px" disabled>
+          <!-- 2. Images ➔ PDF Options -->
+          <div style="display:none;margin-top:14px" id="conv-options-img2pdf">
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Output PDF Filename</label>
+            <input type="text" id="img2pdf-name" class="studio-select" value="combined_images.pdf" placeholder="e.g. lecture_slides.pdf" />
+          </div>
+
+          <!-- 3. Merge PDFs Options -->
+          <div style="display:none;margin-top:14px" id="conv-options-pdfmerge">
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Merged PDF Filename</label>
+            <input type="text" id="pdfmerge-name" class="studio-select" value="merged_study_notes.pdf" placeholder="e.g. anatomy_all_chapters.pdf" />
+          </div>
+
+          <!-- Action Button -->
+          <button class="studio-btn" id="start-conv-btn" onclick="startConversion()" style="width:100%;margin-top:16px;padding:12px;justify-content:center;font-size:14px;font-weight:700" disabled>
             ⚡ Convert Document Now
           </button>
 
-          <div id="conv-result-box" style="display:none;margin-top:14px;background:rgba(125,125,125,0.08);border:1px solid var(--modal-border);border-radius:12px;padding:12px">
-            <div id="conv-result-msg" style="font-size:13px;font-weight:600;color:var(--accent);margin-bottom:8px">Conversion Complete!</div>
-            <div id="conv-result-links" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+          <!-- Result Box -->
+          <div id="conv-result-box" style="display:none;margin-top:14px;background:rgba(125,125,125,0.08);border:1px solid var(--modal-border);border-radius:12px;padding:14px">
+            <div id="conv-result-msg" style="font-size:13.5px;font-weight:700;color:#10b981;margin-bottom:10px">🎉 Conversion Complete!</div>
+            <div id="conv-result-links" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"></div>
           </div>
         </div>
 
@@ -1473,17 +1520,18 @@
     function setConvMode(mode) {
       currentConvMode = mode;
       currentSelectedFiles = [];
+      
       const fileInput = document.getElementById('conv-file-input');
       if (fileInput) {
         fileInput.value = '';
         if (mode === 'pdf2img') {
-          fileInput.accept = '.pdf';
+          fileInput.accept = '.pdf,application/pdf';
           fileInput.removeAttribute('multiple');
         } else if (mode === 'img2pdf') {
           fileInput.accept = 'image/*,.jpg,.jpeg,.png,.webp,.bmp,.gif';
           fileInput.setAttribute('multiple', 'multiple');
         } else if (mode === 'pdfmerge') {
-          fileInput.accept = '.pdf';
+          fileInput.accept = '.pdf,application/pdf';
           fileInput.setAttribute('multiple', 'multiple');
         }
       }
@@ -1491,40 +1539,204 @@
       document.getElementById('conv-btn-pdf2img').classList.toggle('active', mode === 'pdf2img');
       document.getElementById('conv-btn-img2pdf').classList.toggle('active', mode === 'img2pdf');
       document.getElementById('conv-btn-pdfmerge').classList.toggle('active', mode === 'pdfmerge');
+      
       document.getElementById('conv-options-pdf2img').style.display = mode === 'pdf2img' ? 'grid' : 'none';
+      document.getElementById('conv-options-img2pdf').style.display = mode === 'img2pdf' ? 'block' : 'none';
+      document.getElementById('conv-options-pdfmerge').style.display = mode === 'pdfmerge' ? 'block' : 'none';
       
       const hint = mode === 'pdf2img' 
-        ? 'Click or Drag a PDF here to extract slide images' 
+        ? 'Click or Drag a PDF document here' 
         : mode === 'img2pdf' 
-        ? 'Click or Drag multiple images here to compile into PDF' 
-        : 'Click or Drag multiple PDFs here to merge into one';
+        ? 'Click or Drag multiple image files here' 
+        : 'Click or Drag multiple PDF files here to merge';
+      const sub = mode === 'pdf2img' 
+        ? 'Extracts all pages as high-resolution JPG or PNG images (ZIP included)' 
+        : mode === 'img2pdf' 
+        ? 'Combines JPG, PNG, WEBP, BMP into a single clean PDF' 
+        : 'Merges 2 or more PDF documents in exact order into a single PDF';
+      
       document.getElementById('dropzone-text').textContent = hint;
-      document.getElementById('dropzone-sub').textContent = mode === 'pdf2img' 
-        ? 'Supports .pdf documents' 
-        : mode === 'img2pdf' 
-        ? 'Select multiple JPG, PNG, WEBP images (Hold Ctrl/Shift to select multiple)' 
-        : 'Select multiple PDF files (Hold Ctrl/Shift to select multiple)';
-      document.getElementById('start-conv-btn').disabled = true;
+      document.getElementById('dropzone-sub').textContent = sub;
+      
+      renderSelectedFiles();
       document.getElementById('conv-result-box').style.display = 'none';
     }
 
-    function handleFileSelected(files) {
-      if (!files || files.length === 0) return;
-      currentSelectedFiles = Array.from(files);
-      const count = currentSelectedFiles.length;
-      if (count === 1) {
-        const f = currentSelectedFiles[0];
-        document.getElementById('dropzone-text').textContent = `Selected: ${f.name} (${(f.size / 1024 / 1024).toFixed(2)} MB)`;
-      } else {
-        const totalSize = (currentSelectedFiles.reduce((a, b) => a + b.size, 0) / 1024 / 1024).toFixed(2);
-        document.getElementById('dropzone-text').textContent = `Selected ${count} files (${totalSize} MB total)`;
+    function triggerFileInput() {
+      const fileInput = document.getElementById('conv-file-input');
+      if (fileInput) {
+        fileInput.value = '';
+        if (currentConvMode === 'pdf2img') {
+          fileInput.accept = '.pdf,application/pdf';
+          fileInput.removeAttribute('multiple');
+        } else if (currentConvMode === 'img2pdf') {
+          fileInput.accept = 'image/*,.jpg,.jpeg,.png,.webp,.bmp,.gif';
+          fileInput.setAttribute('multiple', 'multiple');
+        } else if (currentConvMode === 'pdfmerge') {
+          fileInput.accept = '.pdf,application/pdf';
+          fileInput.setAttribute('multiple', 'multiple');
+        }
+        fileInput.click();
       }
-      document.getElementById('start-conv-btn').disabled = false;
+    }
+
+    function handleFileSelectEvent(e) {
+      if (e.target.files && e.target.files.length > 0) {
+        addFilesToConverter(Array.from(e.target.files));
+      }
+    }
+
+    function addFilesToConverter(files) {
+      if (!files || files.length === 0) return;
+      
+      if (currentConvMode === 'pdf2img') {
+        const pdfFile = files.find(f => f.name.toLowerCase().endsWith('.pdf')) || files[0];
+        if (!pdfFile.name.toLowerCase().endsWith('.pdf')) {
+          showToast('Please select a valid .PDF document', 'error');
+          return;
+        }
+        currentSelectedFiles = [pdfFile];
+      } else if (currentConvMode === 'pdfmerge') {
+        const pdfs = files.filter(f => f.name.toLowerCase().endsWith('.pdf') || f.type === 'application/pdf');
+        if (pdfs.length === 0) {
+          showToast('Please select .PDF files to merge', 'error');
+          return;
+        }
+        currentSelectedFiles = currentSelectedFiles.concat(pdfs);
+        showToast(`Added ${pdfs.length} PDF file(s) to queue`, 'info');
+      } else if (currentConvMode === 'img2pdf') {
+        currentSelectedFiles = currentSelectedFiles.concat(files);
+        showToast(`Added ${files.length} image(s) to queue`, 'info');
+      }
+      
+      renderSelectedFiles();
+    }
+
+    function removeFileByIndex(idx) {
+      currentSelectedFiles.splice(idx, 1);
+      renderSelectedFiles();
+    }
+
+    function moveFile(idx, direction) {
+      const targetIdx = idx + direction;
+      if (targetIdx < 0 || targetIdx >= currentSelectedFiles.length) return;
+      const temp = currentSelectedFiles[idx];
+      currentSelectedFiles[idx] = currentSelectedFiles[targetIdx];
+      currentSelectedFiles[targetIdx] = temp;
+      renderSelectedFiles();
+    }
+
+    function clearSelectedFiles() {
+      currentSelectedFiles = [];
+      const fileInput = document.getElementById('conv-file-input');
+      if (fileInput) fileInput.value = '';
+      renderSelectedFiles();
       document.getElementById('conv-result-box').style.display = 'none';
+    }
+
+    function renderSelectedFiles() {
+      const container = document.getElementById('selected-files-container');
+      const list = document.getElementById('selected-files-list');
+      const countEl = document.getElementById('selected-files-count');
+      const btn = document.getElementById('start-conv-btn');
+      const count = currentSelectedFiles.length;
+
+      if (count === 0) {
+        container.style.display = 'none';
+        btn.disabled = true;
+        if (currentConvMode === 'pdf2img') {
+          btn.innerHTML = '⚡ Extract Slide Images (JPG/PNG)';
+        } else if (currentConvMode === 'img2pdf') {
+          btn.innerHTML = '📄 Compile Images into PDF';
+        } else {
+          btn.innerHTML = '📑 Merge PDFs into One Document';
+        }
+        return;
+      }
+
+      container.style.display = 'block';
+      countEl.textContent = count;
+
+      list.innerHTML = currentSelectedFiles.map((file, idx) => {
+        const sizeStr = (file.size / 1024 / 1024).toFixed(2) + ' MB';
+        const isPdf = file.name.toLowerCase().endsWith('.pdf');
+        const icon = isPdf ? '📄' : '🖼️';
+        return `
+          <div class="file-queue-item">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0;flex:1">
+              <span style="font-size:11px;font-weight:700;background:var(--accent);color:#fff;padding:2px 6px;border-radius:4px">#${idx + 1}</span>
+              <span style="font-size:16px">${icon}</span>
+              <span style="font-weight:600;color:var(--text-main);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${file.name}">${file.name}</span>
+              <span style="font-size:11px;color:var(--text-muted);font-family:monospace">(${sizeStr})</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px">
+              ${idx > 0 ? `<button type="button" onclick="moveFile(${idx}, -1)" title="Move Up" class="studio-btn studio-btn-secondary" style="padding:3px 7px;font-size:11px">↑</button>` : ''}
+              ${idx < count - 1 ? `<button type="button" onclick="moveFile(${idx}, 1)" title="Move Down" class="studio-btn studio-btn-secondary" style="padding:3px 7px;font-size:11px">↓</button>` : ''}
+              <button type="button" onclick="removeFileByIndex(${idx})" title="Remove File" class="studio-btn studio-btn-secondary" style="padding:3px 7px;font-size:11px;color:#ef4444">✕</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // Update Action Button
+      if (currentConvMode === 'pdf2img') {
+        btn.disabled = false;
+        btn.innerHTML = `⚡ Extract Slide Images from ${currentSelectedFiles[0].name}`;
+      } else if (currentConvMode === 'img2pdf') {
+        btn.disabled = false;
+        btn.innerHTML = `📄 Compile ${count} Image${count > 1 ? 's' : ''} into PDF`;
+      } else if (currentConvMode === 'pdfmerge') {
+        if (count >= 2) {
+          btn.disabled = false;
+          btn.innerHTML = `📑 Merge ${count} PDF Files into One Document`;
+        } else {
+          btn.disabled = true;
+          btn.innerHTML = `⚠️ Select at least 1 more PDF to Merge (${count}/2 selected)`;
+        }
+      }
+    }
+
+    let dropzoneInitialized = false;
+    function initDropzone() {
+      const dropzone = document.getElementById('file-dropzone');
+      if (!dropzone || dropzoneInitialized) return;
+      dropzoneInitialized = true;
+
+      dropzone.onclick = () => triggerFileInput();
+
+      ['dragenter', 'dragover'].forEach(name => {
+        dropzone.addEventListener(name, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dropzone.classList.add('dragover');
+        });
+      });
+
+      ['dragleave', 'drop'].forEach(name => {
+        dropzone.addEventListener(name, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dropzone.classList.remove('dragover');
+        });
+      });
+
+      dropzone.addEventListener('drop', (e) => {
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          addFilesToConverter(Array.from(e.dataTransfer.files));
+        }
+      });
     }
 
     async function startConversion() {
-      if (!currentSelectedFiles || currentSelectedFiles.length === 0) return;
+      if (!currentSelectedFiles || currentSelectedFiles.length === 0) {
+        showToast('Please select files to convert first', 'error');
+        return;
+      }
+
+      if (currentConvMode === 'pdfmerge' && currentSelectedFiles.length < 2) {
+        showToast('Please select at least 2 PDF files to merge', 'error');
+        return;
+      }
 
       const btn = document.getElementById('start-conv-btn');
       btn.disabled = true;
@@ -1538,12 +1750,17 @@
         formData.append('file', currentSelectedFiles[0]);
         formData.append('output_format', document.getElementById('conv-fmt-select').value);
         formData.append('dpi', document.getElementById('conv-dpi-select').value);
+        formData.append('quality', '90');
       } else if (currentConvMode === 'img2pdf') {
         endpoint = '/api/convert/images-to-pdf';
         currentSelectedFiles.forEach(f => formData.append('files', f));
+        const outName = document.getElementById('img2pdf-name').value.trim() || 'combined_images.pdf';
+        formData.append('pdf_name', outName);
       } else if (currentConvMode === 'pdfmerge') {
         endpoint = '/api/convert/pdf-merge';
         currentSelectedFiles.forEach(f => formData.append('files', f));
+        const outName = document.getElementById('pdfmerge-name').value.trim() || 'merged_document.pdf';
+        formData.append('output_filename', outName);
       }
 
       try {
@@ -1561,20 +1778,30 @@
           let linksHtml = '';
           if (data.zip_download_url || data.zip_filename) {
             const zipUrl = data.zip_download_url || `/downloads/${encodeURIComponent(data.zip_filename)}`;
-            linksHtml += `<a href="${zipUrl}" target="_blank" download class="studio-btn" style="background:#2563eb;color:#fff;text-decoration:none;padding:10px 16px">📦 Download All ZIP (${data.total_pages || data.pages?.length || ''} Pages)</a>`;
+            linksHtml += `<a href="${zipUrl}" target="_blank" download class="studio-btn" style="background:#2563eb;color:#fff;text-decoration:none;padding:10px 18px;font-weight:700">📦 Download All ZIP (${data.total_pages || data.pages?.length || ''} Pages)</a>`;
           }
           if (data.download_url || data.filename) {
             const fileUrl = data.download_url || `/downloads/${encodeURIComponent(data.filename)}`;
             const fileName = data.filename || 'converted_document.pdf';
-            linksHtml += `<a href="${fileUrl}" target="_blank" download class="studio-btn" style="background:#10b981;color:#fff;text-decoration:none;padding:10px 16px">💾 Download ${fileName} (${data.size_bytes ? (data.size_bytes / 1024 / 1024).toFixed(2) + ' MB' : 'Ready'})</a>`;
+            const sizeFormatted = data.size_bytes ? (data.size_bytes / 1024 / 1024).toFixed(2) + ' MB' : 'Ready';
+            linksHtml += `
+              <a href="${fileUrl}" target="_blank" download class="studio-btn" style="background:#10b981;color:#fff;text-decoration:none;padding:10px 18px;font-weight:700">
+                💾 Download ${fileName} (${sizeFormatted})
+              </a>
+              <a href="${fileUrl}" target="_blank" class="studio-btn studio-btn-secondary" style="padding:10px 16px;text-decoration:none">
+                👁️ View PDF
+              </a>
+            `;
           }
           if (data.pages && Array.isArray(data.pages) && data.pages.length > 0) {
+            linksHtml += `<div style="width:100%;margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">`;
             data.pages.slice(0, 10).forEach(p => {
-              linksHtml += `<a href="${p.download_url}" target="_blank" download class="studio-btn studio-btn-secondary" style="padding:6px 12px;font-size:12px;text-decoration:none">Page ${p.page}</a>`;
+              linksHtml += `<a href="${p.download_url}" target="_blank" download class="studio-btn studio-btn-secondary" style="padding:4px 10px;font-size:11.5px;text-decoration:none">Page ${p.page}</a>`;
             });
             if (data.pages.length > 10) {
               linksHtml += `<span style="font-size:11.5px;color:var(--text-muted);align-self:center">+ ${data.pages.length - 10} more in ZIP</span>`;
             }
+            linksHtml += `</div>`;
           }
           linksBox.innerHTML = linksHtml || '<span style="color:#10b981">Conversion complete!</span>';
         } else {
@@ -1583,9 +1810,19 @@
       } catch (err) {
         showToast(err.message, 'error');
       } finally {
-        btn.disabled = false;
-        btn.innerHTML = '⚡ Convert Document Now';
+        renderSelectedFiles();
       }
+    }
+
+    // Initialize dropzone on script load
+    document.addEventListener('DOMContentLoaded', () => {
+      initDropzone();
+      setConvMode('pdf2img');
+    });
+    // In case DOM is already loaded
+    if (document.readyState === 'interactive' || document.readyState === 'complete') {
+      initDropzone();
+      setConvMode('pdf2img');
     }
 
     // Keyboard Shortcuts

@@ -375,7 +375,9 @@ async def serve_downloaded_file(filename: str):
     safe_name = os.path.basename(filename)
     fpath = os.path.join(download_dir, safe_name)
     if os.path.exists(fpath):
-        return FileResponse(fpath, filename=safe_name, media_type="application/octet-stream")
+        ext = os.path.splitext(safe_name)[1].lower()
+        content_type = "application/pdf" if ext == ".pdf" else "application/zip" if ext == ".zip" else "image/jpeg" if ext in [".jpg", ".jpeg"] else "image/png" if ext == ".png" else "application/octet-stream"
+        return FileResponse(fpath, filename=safe_name, media_type=content_type)
     raise HTTPException(status_code=404, detail="File not found")
 
 # Serve inline stream for media player playback

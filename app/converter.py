@@ -29,9 +29,14 @@ def pdf_to_images(
     """
     download_dir = get_download_dir()
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    if doc.is_encrypted:
+        doc.close()
+        raise ValueError("This PDF document is password-protected or encrypted. Please remove password first.")
+    
     total_pages = len(doc)
     
     if total_pages == 0:
+        doc.close()
         raise ValueError("PDF document has no pages.")
 
     base_name = os.path.splitext(sanitize_filename(original_filename, "document"))[0]
@@ -231,8 +236,10 @@ def merge_pdfs(pdf_items: List[Tuple[str, bytes]], output_filename: str = "merge
     """
     Merges multiple PDF files into a single PDF.
     """
-    if not pdf_items:
+    if not pdf_items or len(pdf_items) == 0:
         raise ValueError("No PDF files provided to merge.")
+    if len(pdf_items) < 2:
+        raise ValueError("Please provide at least 2 PDF files to merge.")
 
     download_dir = get_download_dir()
     clean_name = sanitize_filename(output_filename, "merged_document.pdf")
@@ -244,17 +251,30 @@ def merge_pdfs(pdf_items: List[Tuple[str, bytes]], output_filename: str = "merge
     merged_doc = fitz.open()
 
     total_pages = 0
+    errors = []
+    merged_files = []
+
     for original_name, pdf_bytes in pdf_items:
+        if not pdf_bytes or len(pdf_bytes) == 0:
+            errors.append(f"{original_name} is empty (0 bytes)")
+            continue
         try:
             doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            if doc.is_encrypted:
+                errors.append(f"{original_name} is password protected")
+                doc.close()
+                continue
             merged_doc.insert_pdf(doc)
             total_pages += len(doc)
+            merged_files.append(original_name)
             doc.close()
         except Exception as e:
             logger.warning(f"Skipping corrupt PDF {original_name}: {e}")
+            errors.append(f"{original_name}: {str(e)}")
 
-    if len(merged_doc) == 0:
-        raise ValueError("Could not merge any of the provided PDF documents.")
+    if len(merged_doc) == 0 or len(merged_files) < 2:
+        err_detail = "; ".join(errors) if errors else "Could not merge provided PDF documents. Please ensure at least 2 valid PDF files."
+        raise ValueError(err_detail)
 
     merged_doc.save(final_filepath, deflate=True)
     merged_doc.close()
@@ -267,5 +287,7 @@ def merge_pdfs(pdf_items: List[Tuple[str, bytes]], output_filename: str = "merge
         "filepath": final_filepath,
         "download_url": f"/downloads/{clean_name}",
         "total_pages": total_pages,
-        "size_bytes": file_size
+        "size_bytes": file_size,
+        "merged_count": len(merged_files),
+        "skipped_errors": errors
     }
