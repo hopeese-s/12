@@ -11,7 +11,7 @@ from typing import Dict, Any, Optional, List
 import requests
 import yt_dlp
 
-from app.config import get_download_dir, BIN_DIR
+from app.config import get_download_dir, BIN_DIR, force_free_memory
 from app.ffmpeg_setup import ensure_ffmpeg
 
 logger = logging.getLogger("downloader")
@@ -530,6 +530,10 @@ class DownloadJob:
             'windowsfilenames': True,
             'restrictfilenames': False,
             'overwrites': True,
+            'buffersize': 1024 * 64,
+            'http_chunk_size': 10485760,
+            'concurrent_fragment_downloads': 1,
+            'no_part': False,
             'extractor_args': {
                 'youtube': {
                     'player_client': ['tv_embedded', 'android'],
@@ -636,6 +640,7 @@ class DownloadJob:
                         "completed_at": time.time()
                     })
                     broadcast_task_update(self.task_id)
+                force_free_memory()
 
         except Exception as e:
             err_str = str(e)
@@ -659,6 +664,10 @@ class DownloadJob:
                         'windowsfilenames': True,
                         'restrictfilenames': False,
                         'overwrites': True,
+                        'buffersize': 1024 * 64,
+                        'http_chunk_size': 10485760,
+                        'concurrent_fragment_downloads': 1,
+                        'no_part': False,
                         'format': '18/best',
                         'merge_output_format': 'mp4',
                         'extractor_args': {
@@ -733,6 +742,7 @@ class DownloadJob:
                                 "completed_at": time.time()
                             })
                             broadcast_task_update(self.task_id)
+                    force_free_memory()
                     return  # fallback succeeded
                 except Exception as e2:
                     logger.error(f"YouTube fallback also failed ({self.task_id}): {e2}")
@@ -773,6 +783,7 @@ class DownloadJob:
                     "completed_at": time.time()
                 })
                 broadcast_task_update(self.task_id)
+            force_free_memory()
 
 async def start_download_task(url: str, format_type: str = "mp4", quality: str = "best", custom_title: str = "", direct_url: str = "") -> str:
     """Spawns an async download job."""

@@ -5,7 +5,19 @@ import time
 import subprocess
 import logging
 
+import gc
+import ctypes
+
 logger = logging.getLogger("config")
+
+def force_free_memory():
+    """Forces Python garbage collection and returns free glibc arenas back to OS kernel."""
+    gc.collect()
+    try:
+        # Free glibc malloc arenas back to OS on Linux
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 IS_VERCEL = bool(os.environ.get("VERCEL") or os.environ.get("NOW_REGION"))
@@ -24,8 +36,8 @@ DEFAULT_SETTINGS = {
     "embed_metadata": True,
     "video_format": "best",      # 'best', '1080', '720', '480'
     "audio_bitrate": "320",      # '320', '192', '128'
-    "max_concurrent_downloads": int(os.environ.get("MAX_CONCURRENT", 4)),
-    "auto_cleanup_hours": int(os.environ.get("AUTO_CLEANUP_HOURS", 24 if IS_CLOUD_DEPLOY else 0)), # 0 = disabled
+    "max_concurrent_downloads": int(os.environ.get("MAX_CONCURRENT", 2)),
+    "auto_cleanup_hours": int(os.environ.get("AUTO_CLEANUP_HOURS", 2 if IS_CLOUD_DEPLOY else 0)), # 0 = disabled
     "is_cloud_mode": IS_CLOUD_DEPLOY
 }
 

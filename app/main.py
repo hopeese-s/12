@@ -20,7 +20,8 @@ from app.config import (
     save_settings, 
     open_in_file_manager,
     cleanup_old_downloads,
-    IS_CLOUD_DEPLOY
+    IS_CLOUD_DEPLOY,
+    force_free_memory
 )
 from app.ffmpeg_setup import ensure_ffmpeg
 from app.downloader import (
@@ -53,12 +54,12 @@ app.add_middleware(
 )
 
 # Background auto-cleanup worker
-TASK_EXPIRY_SECONDS = 1800  # 30 minutes
+TASK_EXPIRY_SECONDS = 600  # 10 minutes (freed promptly from memory & disk)
 
 async def periodic_cleanup():
     while True:
         try:
-            await asyncio.sleep(300)  # Check every 5 minutes
+            await asyncio.sleep(120)  # Check every 2 minutes
             now = time.time()
             expired_ids = [
                 tid for tid, t in list(TASKS.items())
@@ -76,6 +77,7 @@ async def periodic_cleanup():
             if expired_ids:
                 logger.info(f"Auto-purged {len(expired_ids)} expired task(s) from memory")
             cleanup_old_downloads()
+            force_free_memory()
         except Exception as e:
             logger.error(f"Periodic cleanup error: {e}")
 

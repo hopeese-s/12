@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from PIL import Image
 import pymupdf as fitz
 
-from app.config import get_download_dir
+from app.config import get_download_dir, force_free_memory
 
 logger = logging.getLogger("converter")
 
@@ -25,18 +25,20 @@ def pdf_to_images(
 ) -> Dict[str, Any]:
     """
     Converts each page of a PDF document into high-resolution JPG or PNG images.
-    If multiple pages, also creates a .zip package.
+    If multiple pages, also creates a .zip package streamed directly to disk.
     """
     download_dir = get_download_dir()
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     if doc.is_encrypted:
         doc.close()
+        force_free_memory()
         raise ValueError("This PDF document is password-protected or encrypted. Please remove password first.")
     
     total_pages = len(doc)
     
     if total_pages == 0:
         doc.close()
+        force_free_memory()
         raise ValueError("PDF document has no pages.")
 
     base_name = os.path.splitext(sanitize_filename(original_filename, "document"))[0]
@@ -47,8 +49,10 @@ def pdf_to_images(
     mat = fitz.Matrix(zoom, zoom)
     
     page_files = []
-    zip_buffer = io.BytesIO() if total_pages > 1 else None
-    zf = zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) if zip_buffer else None
+    zip_filename = f"{base_name}_all_pages.zip" if total_pages > 1 else None
+    zip_filepath = os.path.join(download_dir, zip_filename) if zip_filename else None
+    zip_download_url = f"/downloads/{zip_filename}" if zip_filename else None
+    zf = zipfile.ZipFile(zip_filepath, "w", zipfile.ZIP_DEFLATED) if zip_filepath else None
     
     try:
         for page_num in range(total_pages):
@@ -65,6 +69,7 @@ def pdf_to_images(
                 buf = io.BytesIO()
                 pil_img.save(buf, format="JPEG", quality=quality, optimize=True)
                 img_data = buf.getvalue()
+                del pil_img
 
             page_fname = f"{base_name}_page_{page_num + 1}.{out_ext}"
             page_fpath = os.path.join(download_dir, page_fname)
@@ -84,19 +89,15 @@ def pdf_to_images(
             
             if zf:
                 zf.writestr(page_fname, img_data)
+
+            # Release page and pixmap immediately from memory
+            del pix
+            del page
     finally:
         if zf:
             zf.close()
-
-    zip_filename = None
-    zip_download_url = None
-    
-    if total_pages > 1 and zip_buffer:
-        zip_filename = f"{base_name}_all_pages.zip"
-        zip_filepath = os.path.join(download_dir, zip_filename)
-        with open(zip_filepath, "wb") as f:
-            f.write(zip_buffer.getvalue())
-        zip_download_url = f"/downloads/{zip_filename}"
+        doc.close()
+        force_free_memory()
 
     return {
         "success": True,
@@ -160,6 +161,7 @@ def images_to_pdf(
 
     pdf_doc.save(final_filepath, deflate=True)
     pdf_doc.close()
+    force_free_memory()
 
     file_size = os.path.getsize(final_filepath)
 
@@ -219,6 +221,8 @@ def convert_image(
         save_kwargs["optimize"] = True
 
     pil_img.save(out_filepath, format=pil_fmt, **save_kwargs)
+    del pil_img
+    force_free_memory()
     file_size = os.path.getsize(out_filepath)
 
     return {
@@ -278,6 +282,7 @@ def merge_pdfs(pdf_items: List[Tuple[str, bytes]], output_filename: str = "merge
 
     merged_doc.save(final_filepath, deflate=True)
     merged_doc.close()
+    force_free_memory()
 
     file_size = os.path.getsize(final_filepath)
 
@@ -322,11 +327,13 @@ def compress_pdf(
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     if doc.is_encrypted:
         doc.close()
+        force_free_memory()
         raise ValueError("This PDF document is password-protected or encrypted. Please remove password first.")
 
     total_pages = len(doc)
     if total_pages == 0:
         doc.close()
+        force_free_memory()
         raise ValueError("PDF document has no pages.")
 
     level = compression_level.lower().strip()
@@ -362,6 +369,7 @@ def compress_pdf(
         use_objstms=1
     )
     doc.close()
+    force_free_memory()
 
     compressed_size = os.path.getsize(final_filepath)
     saved_bytes = max(0, original_size - compressed_size)
