@@ -12,6 +12,8 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Back
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
+import tempfile
 
 from app.config import (
     BASE_DIR, 
@@ -26,6 +28,7 @@ from app.config import (
 from app.ffmpeg_setup import ensure_ffmpeg
 from app.downloader import (
     extract_video_info, 
+    extract_video_info_isolated,
     start_download_task, 
     TASKS, 
     SUBSCRIBERS,
@@ -52,6 +55,73 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ─── Memory-safe upload & conversion helpers ──────────────────────────────
+# Uploads are copied to a temp file in 1 MB chunks (never read whole into RAM),
+# and only one conversion runs at a time, in a worker thread, so a large PDF
+# neither multiplies peak memory nor freezes the event loop for other requests.
+_CONVERT_SLOT = asyncio.Semaphore(1)
+_CHUNK = 1024 * 1024
+
+
+async def _upload_to_tmp(upload: UploadFile, suffix: str = "") -> str:
+    fd, path = tempfile.mkstemp(prefix="omni_", suffix=suffix, dir=get_download_dir())
+    with os.fdopen(fd, "wb") as out:
+        while True:
+            chunk = await upload.read(_CHUNK)
+            if not chunk:
+                break
+            out.write(chunk)
+    await upload.close()
+    return path
+
+
+def _rm(*paths):
+    for p in paths:
+        try:
+            if p and os.path.exists(p):
+                os.remove(p)
+        except Exception:
+            pass
+
+
+# Conversions run in a throw-away child process (one task per process). PyMuPDF
+# and Pillow allocate a lot and glibc never hands that memory back to the OS, so
+# running them in-process left the server stuck at ~170 MB after one big PDF.
+# When the child exits, all of it is returned and the server drops back to idle.
+def _run_in_child(fn, kwargs):
+    """Run app.converter.<fn> in a fresh `python -m app.convert_worker` process."""
+    import pickle
+    job = res = None
+    try:
+        fd, job = tempfile.mkstemp(prefix="omni_job_", dir=get_download_dir())
+        with os.fdopen(fd, "wb") as f:
+            pickle.dump((fn.__name__, kwargs), f)
+        fd, res = tempfile.mkstemp(prefix="omni_res_", dir=get_download_dir())
+        os.close(fd)
+        proc = subprocess.run(
+            [sys.executable, "-m", "app.convert_worker", job, res],
+            cwd=BASE_DIR, capture_output=True, timeout=300,
+        )
+        if proc.returncode != 0 or os.path.getsize(res) == 0:
+            tail = (proc.stderr or b"").decode("utf-8", "replace").strip().splitlines()[-1:]
+            raise RuntimeError("Conversion process failed" + (f": {tail[0]}" if tail else f" (exit {proc.returncode})"))
+        with open(res, "rb") as f:
+            status, value = pickle.load(f)
+        if status == "err":
+            raise ValueError(value)
+        return value
+    finally:
+        _rm(job, res)
+
+
+async def _convert(fn, **kwargs):
+    async with _CONVERT_SLOT:
+        try:
+            return await run_in_threadpool(_run_in_child, fn, kwargs)
+        finally:
+            force_free_memory()
+
 
 # Background auto-cleanup worker
 TASK_EXPIRY_SECONDS = 600  # 10 minutes (freed promptly from memory & disk)
@@ -122,7 +192,7 @@ async def get_info(req: InfoRequest):
     if not req.url or not req.url.strip():
         raise HTTPException(status_code=400, detail="URL cannot be empty")
     loop = asyncio.get_running_loop()
-    info = await loop.run_in_executor(None, extract_video_info, req.url.strip())
+    info = await loop.run_in_executor(None, extract_video_info_isolated, req.url.strip())
     return info
 
 @app.post("/api/download")
@@ -262,8 +332,8 @@ async def get_system_status():
     ffmpeg_path = ensure_ffmpeg()
     
     try:
-        import yt_dlp.version
-        ytdlp_ver = yt_dlp.version.__version__
+        from importlib.metadata import version as _pkg_version
+        ytdlp_ver = _pkg_version("yt-dlp")
     except Exception:
         ytdlp_ver = "unknown"
     
@@ -302,19 +372,23 @@ async def api_pdf_to_images(
     dpi: int = Form(150),
     quality: int = Form(90)
 ):
+    tmp = None
     try:
-        content = await file.read()
-        res = pdf_to_images(
-            pdf_bytes=content,
+        tmp = await _upload_to_tmp(file, ".pdf")
+        res = await _convert(
+            pdf_to_images,
+            pdf_bytes=tmp,
             original_filename=file.filename or "document.pdf",
             output_format=output_format,
-            dpi=dpi,
+            dpi=max(36, min(int(dpi), 300)),
             quality=quality
         )
         return res
     except Exception as e:
         logger.error(f"PDF to images error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        _rm(tmp)
 
 @app.post("/api/convert/images-to-pdf")
 async def api_images_to_pdf(
@@ -327,7 +401,8 @@ async def api_images_to_pdf(
             content = await f.read()
             image_items.append((f.filename or "image.jpg", content))
         
-        res = images_to_pdf(image_items=image_items, output_filename=pdf_name)
+        res = await _convert(images_to_pdf, image_items=image_items, output_filename=pdf_name)
+        del image_items
         return res
     except Exception as e:
         logger.error(f"Images to PDF error: {e}")
@@ -343,7 +418,8 @@ async def api_convert_image(
         converted = []
         for f in files:
             content = await f.read()
-            res = convert_image(
+            res = await _convert(
+                convert_image,
                 image_bytes=content,
                 original_filename=f.filename or "image.png",
                 target_format=target_format,
@@ -360,16 +436,20 @@ async def api_merge_pdfs(
     files: List[UploadFile] = File(...),
     output_filename: str = Form("merged_document.pdf")
 ):
+    tmps = []
     try:
         pdf_items = []
         for f in files:
-            content = await f.read()
-            pdf_items.append((f.filename or "doc.pdf", content))
-        res = merge_pdfs(pdf_items=pdf_items, output_filename=output_filename)
+            path = await _upload_to_tmp(f, ".pdf")
+            tmps.append(path)
+            pdf_items.append((f.filename or "doc.pdf", path))
+        res = await _convert(merge_pdfs, pdf_items=pdf_items, output_filename=output_filename)
         return res
     except Exception as e:
         logger.error(f"PDF merge error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        _rm(*tmps)
 
 @app.post("/api/convert/pdf-compress")
 async def api_compress_pdf(
@@ -377,10 +457,12 @@ async def api_compress_pdf(
     compression_level: str = Form("balanced"),
     output_filename: Optional[str] = Form(None)
 ):
+    tmp = None
     try:
-        content = await file.read()
-        res = compress_pdf(
-            pdf_bytes=content,
+        tmp = await _upload_to_tmp(file, ".pdf")
+        res = await _convert(
+            compress_pdf,
+            pdf_bytes=tmp,
             original_filename=file.filename or "document.pdf",
             compression_level=compression_level,
             output_filename=output_filename
@@ -389,6 +471,8 @@ async def api_compress_pdf(
     except Exception as e:
         logger.error(f"PDF compress error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        _rm(tmp)
 
 # Serve downloaded files for browser downloading (attachment mode)
 @app.get("/downloads/{filename}")

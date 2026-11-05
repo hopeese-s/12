@@ -8,10 +8,90 @@ import urllib.parse
 import urllib.request
 import urllib.error
 from typing import Dict, Any, Optional, List
+import threading
 import requests
-import yt_dlp
 
-from app.config import get_download_dir, BIN_DIR, force_free_memory
+from app.config import get_download_dir, BIN_DIR, force_free_memory, _LazyModule, load_settings
+
+# yt-dlp is imported on first download/info request instead of at boot
+yt_dlp = _LazyModule('yt_dlp')
+
+# Each download runs yt-dlp + ffmpeg, which is where RAM spikes come from.
+# Cap how many run at once (MAX_CONCURRENT env / settings, default 1 in the cloud).
+try:
+    _MAX_DL = max(1, int(load_settings().get('max_concurrent_downloads', 1)))
+except Exception:
+    _MAX_DL = 1
+_DL_SLOTS = threading.BoundedSemaphore(_MAX_DL)
+
+
+_WORKER_MARK = "\x1eOMNI "
+_APP_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Set OMNI_INPROCESS=1 to run yt-dlp inside the server (old behaviour, more RAM)
+_IN_PROCESS = os.environ.get("OMNI_INPROCESS") == "1"
+
+
+def _worker_cmd(*args):
+    import sys
+    return [sys.executable, "-m", "app.dl_worker", *args]
+
+
+def _run_limited(job):
+    """Run one download, at most _MAX_DL at a time, in a throw-away process."""
+    with _DL_SLOTS:
+        if _IN_PROCESS:
+            try:
+                job.run()
+            finally:
+                force_free_memory()
+            return
+        import json, subprocess
+        tid = job.task_id
+        payload = json.dumps({
+            "task": TASKS.get(tid, {}), "url": job.url, "format_type": job.format_type,
+            "quality": job.quality, "custom_title": job.custom_title, "direct_url": job.direct_url,
+        })
+        try:
+            proc = subprocess.Popen(_worker_cmd("download"), cwd=_APP_ROOT, stdin=subprocess.PIPE,
+                                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
+            proc.stdin.write(payload)
+            proc.stdin.close()
+            for line in proc.stdout:
+                if not line.startswith(_WORKER_MARK):
+                    continue
+                try:
+                    msg = json.loads(line[len(_WORKER_MARK):])
+                except ValueError:
+                    continue
+                if tid in TASKS and isinstance(msg.get("task"), dict):
+                    TASKS[tid].update(msg["task"])
+                    broadcast_task_update(tid)
+            proc.wait()
+        except Exception as e:
+            logger.error(f"Download worker failed to start: {e}")
+        task = TASKS.get(tid)
+        if task and task.get("status") not in ("completed", "error"):
+            task["status"] = "error"
+            task["error"] = task.get("error") or "ดาวน์โหลดล้มเหลว (worker หยุดทำงาน)"
+            broadcast_task_update(tid)
+
+
+def extract_video_info_isolated(url: str) -> Dict[str, Any]:
+    """extract_video_info, but in a child process so yt-dlp never stays in server RAM."""
+    if _IN_PROCESS:
+        return extract_video_info(url)
+    import json, subprocess
+    try:
+        proc = subprocess.run(_worker_cmd("info", url), cwd=_APP_ROOT, capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("Timed out while reading this link")
+    for line in reversed(proc.stdout.split("\n")):
+        if line.startswith(_WORKER_MARK):
+            msg = json.loads(line[len(_WORKER_MARK):])
+            if msg.get("ok"):
+                return msg["data"]
+            raise RuntimeError(msg.get("error") or "Could not read this link")
+    raise RuntimeError("Could not read this link")
 from app.ffmpeg_setup import ensure_ffmpeg
 
 logger = logging.getLogger("downloader")
@@ -810,5 +890,5 @@ async def start_download_task(url: str, format_type: str = "mp4", quality: str =
 
     job = DownloadJob(task_id, cleaned_url, format_type, quality, custom_title, direct_url)
     loop = asyncio.get_running_loop()
-    loop.run_in_executor(None, job.run)
+    loop.run_in_executor(None, _run_limited, job)
     return task_id

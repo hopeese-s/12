@@ -3,7 +3,7 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "sh -c 'uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --limit-concurrency 25'"
+startCommand = "sh -c 'uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --limit-concurrency 25 --no-access-log --timeout-keep-alive 5'"
 healthcheckPath = "/api/system-status"
 healthcheckTimeout = 100
 restartPolicyType = "ON_FAILURE"

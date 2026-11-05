@@ -5,10 +5,32 @@ import time
 import zipfile
 import logging
 from typing import List, Dict, Any, Optional, Tuple
-from PIL import Image
-import pymupdf as fitz
+from app.config import get_download_dir, force_free_memory, _LazyModule
 
-from app.config import get_download_dir, force_free_memory
+# PyMuPDF alone costs ~41 MB of RAM at import; load it (and Pillow) only when a
+# conversion actually runs.
+fitz = _LazyModule('pymupdf')
+
+class _LazyPIL:
+    def __getattr__(self, attr):
+        from PIL import Image as _Image
+        return getattr(_Image, attr)
+Image = _LazyPIL()
+
+
+def _open_pdf(src):
+    """Open a PDF from a file path (memory-mapped by MuPDF) or from bytes."""
+    if isinstance(src, (str, os.PathLike)):
+        return fitz.open(src)
+    return fitz.open(stream=src, filetype="pdf")
+
+
+def _src_size(src) -> int:
+    if not src:
+        return 0
+    if isinstance(src, (str, os.PathLike)):
+        return os.path.getsize(src)
+    return len(src)
 
 logger = logging.getLogger("converter")
 
@@ -28,7 +50,7 @@ def pdf_to_images(
     If multiple pages, also creates a .zip package streamed directly to disk.
     """
     download_dir = get_download_dir()
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    doc = _open_pdf(pdf_bytes)
     if doc.is_encrypted:
         doc.close()
         force_free_memory()
@@ -221,6 +243,7 @@ def convert_image(
         save_kwargs["optimize"] = True
 
     pil_img.save(out_filepath, format=pil_fmt, **save_kwargs)
+    width, height = pil_img.width, pil_img.height
     del pil_img
     force_free_memory()
     file_size = os.path.getsize(out_filepath)
@@ -231,8 +254,8 @@ def convert_image(
         "filepath": out_filepath,
         "download_url": f"/downloads/{out_filename}",
         "format": target_ext.upper(),
-        "width": pil_img.width,
-        "height": pil_img.height,
+        "width": width,
+        "height": height,
         "size_bytes": file_size
     }
 
@@ -259,11 +282,11 @@ def merge_pdfs(pdf_items: List[Tuple[str, bytes]], output_filename: str = "merge
     merged_files = []
 
     for original_name, pdf_bytes in pdf_items:
-        if not pdf_bytes or len(pdf_bytes) == 0:
+        if _src_size(pdf_bytes) == 0:
             errors.append(f"{original_name} is empty (0 bytes)")
             continue
         try:
-            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            doc = _open_pdf(pdf_bytes)
             if doc.is_encrypted:
                 errors.append(f"{original_name} is password protected")
                 doc.close()
@@ -307,10 +330,9 @@ def compress_pdf(
     Compresses and optimizes a PDF file using structural de-duplication, stream deflation,
     and optional image downsampling / re-compression.
     """
-    if not pdf_bytes or len(pdf_bytes) == 0:
+    original_size = _src_size(pdf_bytes)
+    if original_size == 0:
         raise ValueError("PDF file is empty (0 bytes).")
-
-    original_size = len(pdf_bytes)
     download_dir = get_download_dir()
     
     base_name = os.path.splitext(sanitize_filename(original_filename, "document"))[0]
@@ -324,7 +346,7 @@ def compress_pdf(
 
     final_filepath = os.path.join(download_dir, clean_name)
 
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    doc = _open_pdf(pdf_bytes)
     if doc.is_encrypted:
         doc.close()
         force_free_memory()

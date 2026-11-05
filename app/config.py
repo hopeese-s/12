@@ -7,6 +7,17 @@ import logging
 
 import gc
 import ctypes
+import importlib
+
+class _LazyModule:
+    """Imports a heavy module on first attribute access, so idle servers never pay for it."""
+    def __init__(self, name):
+        self._name = name
+        self._mod = None
+    def __getattr__(self, attr):
+        if self._mod is None:
+            self._mod = importlib.import_module(self._name)
+        return getattr(self._mod, attr)
 
 logger = logging.getLogger("config")
 
@@ -36,7 +47,7 @@ DEFAULT_SETTINGS = {
     "embed_metadata": True,
     "video_format": "best",      # 'best', '1080', '720', '480'
     "audio_bitrate": "320",      # '320', '192', '128'
-    "max_concurrent_downloads": int(os.environ.get("MAX_CONCURRENT", 2)),
+    "max_concurrent_downloads": int(os.environ.get("MAX_CONCURRENT", 1 if (os.environ.get("DOCKER") or os.environ.get("RAILWAY_ENVIRONMENT")) else 2)),
     "auto_cleanup_hours": int(os.environ.get("AUTO_CLEANUP_HOURS", 2 if IS_CLOUD_DEPLOY else 0)), # 0 = disabled
     "is_cloud_mode": IS_CLOUD_DEPLOY
 }
